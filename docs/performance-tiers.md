@@ -11,6 +11,8 @@ GlasmioPerformance.config = GlasmioPerformanceConfig(
     tier = GlasmioPerformanceTier.Efficient, // null = Auto
     frameRateCap = 30,                        // Hz; null = tier default, 0 = every display frame
     samplingScale = 0.5f,                     // 0.25..1; null = tier default
+    refraction = false,                       // lens passes on/off; null = tier default
+    backdrop = true,                          // backdrop sampling on/off; null = tier default
 )
 ```
 
@@ -18,12 +20,14 @@ GlasmioPerformance.config = GlasmioPerformanceConfig(
 
 ## Tiers
 
-| Tier | Backdrop scale ×| Field grid step × | Glass clock cap | Luminance read-back | Auto picks it for |
-| --- | ---: | ---: | ---: | ---: | --- |
-| `Full` | 1.0 | 1.0 | uncapped | 33 ms | 8 Gen 3+/Tensor G3+/Exynos 2400+/Dimensity 9300+ with ≥ 12 GB |
-| `Balanced` | 0.75 | 1.0 | 60 Hz | 50 ms | Snapdragon 865/888/8 Gen 1–2, Tensor G1/G2, Exynos 2100/2200, any flagship with 8 GB |
-| `Efficient` | 0.5 | 1.5 | 60 Hz | 100 ms | Exynos 1200/1280, Snapdragon 4/6/7 series, Dimensity 700–900, Helio/Unisoc, ≤ 6 GB |
-| `Minimal` | 0.35 | 2.0 | 30 Hz | 250 ms | Low-RAM devices, ≤ 3.5 GB |
+| Tier | Backdrop scale | Field step | Glass clock cap | Lens refraction | Backdrop capture | Auto picks it for |
+| --- | ---: | ---: | ---: | :---: | :---: | --- |
+| `Full` | 1.0 | 1.0 | uncapped | on | on | 8 Gen 2+/Tensor G3+/Exynos 2400+/Dimensity 9300+ with ≥ 12 GB |
+| `Balanced` | 0.75 | 1.0 | 60 Hz | on | on | Snapdragon 8 Gen 1, Tensor G1/G2, Exynos 2100/2200, any flagship with 8 GB |
+| `Efficient` | 0.5 | 1.5 | 60 Hz | **off** | on | Snapdragon 865/888, Exynos 1200/1280, SD 4/6/7 series, Dimensity 700–900, ≤ 6 GB |
+| `Minimal` | 0.35 | 2.0 | 30 Hz | off | **off** | Low-RAM devices, ≤ 3.5 GB |
+
+`Efficient` keeps the frosted blur, tint, highlights and shadows but removes every lens/refraction/dispersion pass (control lenses, tab indicator lens, menu refraction, contact refraction, outer ray). `Minimal` also stops sampling the backdrop, which removes the per-surface page capture that dominates HWUI cost (see "Header glass page references" in the interaction doc); components render as the same flat translucent material the `reduceTransparency` accessibility setting already produces. Both are applied once, in `GlasmioTheme`, through `GlasmioPerformance.adjust(appearance)`, so every component follows. Use `refraction = true/false` or `backdrop = true/false` in `GlasmioPerformanceConfig` to override a tier.
 
 The weaker of the SoC and RAM verdicts wins. Detection reads `Build.SOC_MANUFACTURER`/`SOC_MODEL`/`HARDWARE` (SDK 31+), total RAM and `isLowRamDevice`. Unknown SoCs fall back to RAM alone. Set `tier` explicitly to override.
 

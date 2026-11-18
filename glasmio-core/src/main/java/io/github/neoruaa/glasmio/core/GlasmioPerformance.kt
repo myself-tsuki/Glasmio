@@ -14,6 +14,8 @@ import androidx.compose.runtime.setValue
  * @property samplingMultiplier scale applied on top of each surface's own backdrop sampling scale (1 = unchanged).
  * @property fieldStepMultiplier coarser grid step for the CPU/FP16 liquid-menu and contact fields (1 = unchanged).
  * @property frameRateCap rate, in Hz, at which Glasmio's own animation clocks update glass; 0 means every display frame.
+ * @property refraction whether lens refraction/dispersion shaders run (off = frosted blur glass, no lens passes).
+ * @property backdrop whether glass samples the backdrop at all (off = flat translucent material, no page capture).
  * @property luminanceProbeIntervalMs minimum time between GPU-to-CPU backdrop luminance read-backs.
  */
 enum class GlasmioPerformanceTier(
@@ -21,15 +23,17 @@ enum class GlasmioPerformanceTier(
     val fieldStepMultiplier: Float,
     val frameRateCap: Int,
     val luminanceProbeIntervalMs: Long,
+    val refraction: Boolean,
+    val backdrop: Boolean,
 ) {
     /** Original quality: flagship SoCs. */
-    Full(1f, 1f, 0, 33L),
-    /** Snapdragon 865/888 class and 8 GB mid-range phones. */
-    Balanced(.75f, 1f, 60, 50L),
-    /** Exynos 1200/1280, Dimensity 700–900, Snapdragon 7-series and older. */
-    Efficient(.5f, 1.5f, 60, 100L),
-    /** Low-RAM or very old devices. */
-    Minimal(.35f, 2f, 30, 250L),
+    Full(1f, 1f, 0, 33L, refraction = true, backdrop = true),
+    /** Snapdragon 8 Gen 1/2 class and 8 GB flagships: full optics, lighter sampling. */
+    Balanced(.75f, 1f, 60, 50L, refraction = true, backdrop = true),
+    /** Snapdragon 865/888, Exynos 1200/1280, Dimensity 700–900, Snapdragon 7-series: blurred glass without lens passes. */
+    Efficient(.5f, 1.5f, 60, 100L, refraction = false, backdrop = true),
+    /** Low-RAM or very old devices: flat translucent material, no backdrop capture. */
+    Minimal(.35f, 2f, 30, 250L, refraction = false, backdrop = false),
 }
 
 /**
@@ -42,6 +46,10 @@ data class GlasmioPerformanceConfig(
     val tier: GlasmioPerformanceTier? = null,
     val frameRateCap: Int? = null,
     val samplingScale: Float? = null,
+    /** Force lens refraction on/off; null follows the tier. */
+    val refraction: Boolean? = null,
+    /** Force backdrop sampling on/off; null follows the tier. */
+    val backdrop: Boolean? = null,
 )
 
 /**
@@ -76,6 +84,20 @@ object GlasmioPerformance {
     fun sampling(base: Float): Float {
         val multiplier = state.samplingScale ?: tier.samplingMultiplier
         return if (multiplier >= 1f) base else (base * multiplier).coerceAtLeast(MinimumSamplingScale)
+    }
+
+    /**
+     * The appearance Glasmio components actually render with: [GlasmioTheme] passes the host's appearance
+     * through here, so one switch covers every control, bar, menu, sheet and sidebar.
+     */
+    fun adjust(appearance: GlassAppearance): GlassAppearance {
+        val refraction = state.refraction ?: tier.refraction
+        val backdrop = state.backdrop ?: tier.backdrop
+        if (refraction && backdrop) return appearance
+        return appearance.copy(
+            liquidGlassEnabled = appearance.liquidGlassEnabled && refraction,
+            reduceTransparency = appearance.reduceTransparency || !backdrop,
+        )
     }
 
     fun fieldStep(base: Float): Float = base * tier.fieldStepMultiplier
@@ -124,11 +146,11 @@ object GlasmioPerformance {
         Regex("dimensity ?9[3-9]\\d\\d|mt69[3-9]\\d"),
     )
     private val PreviousFlagshipSoc = listOf(
-        Regex("sm8[2-4]\\d\\d"), Regex("sm7[4-9]\\d\\d"), Regex("tensor g[12]\\b|google tensor"),
+        Regex("sm84\\d\\d"), Regex("sm7[4-9]\\d\\d"), Regex("tensor g[12]\\b|google tensor"),
         Regex("exynos ?2[1-3]\\d\\d|s5e98\\d\\d|s5e992\\d"), Regex("dimensity ?(8\\d|9[0-2])\\d\\d|mt689\\d|mt69[0-2]\\d"),
     )
     private val MidRangeSoc = listOf(
-        Regex("sm[4-7]\\d\\d\\d|sdm\\d+|msm\\d+"), Regex("exynos ?(8|9|1)\\d{3}\\b|s5e\\d+"),
+        Regex("sm8[23]\\d\\d|sm[4-7]\\d\\d\\d|sdm\\d+|msm\\d+"), Regex("exynos ?(8|9|1)\\d{3}\\b|s5e\\d+"),
         Regex("dimensity ?[67]\\d\\d\\d?|mt67\\d\\d|mt68[0-8]\\d"), Regex("helio|unisoc|spreadtrum|ums\\d"),
     )
 }

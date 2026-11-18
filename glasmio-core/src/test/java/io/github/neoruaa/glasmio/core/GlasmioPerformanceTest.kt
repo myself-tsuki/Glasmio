@@ -11,9 +11,10 @@ class GlasmioPerformanceTest {
 
     private fun tier(soc: String, gb: Double, low: Boolean = false) = GlasmioPerformance.classify(soc, gb, low)
 
-    @Test fun snapdragon865IsBalanced() {
-        assertEquals(GlasmioPerformanceTier.Balanced, tier("Qualcomm SM8250 kona", 8.0))
-        assertEquals(GlasmioPerformanceTier.Balanced, tier("Qualcomm SM8250 kona", 12.0))
+    @Test fun snapdragon865IsEfficient() {
+        assertEquals(GlasmioPerformanceTier.Efficient, tier("Qualcomm SM8250 kona", 8.0))
+        assertEquals(GlasmioPerformanceTier.Efficient, tier("Qualcomm SM8250 kona", 12.0))
+        assertEquals(GlasmioPerformanceTier.Balanced, tier("Qualcomm SM8450 waipio", 12.0))
     }
 
     @Test fun exynos1200IsEfficient() {
@@ -29,6 +30,18 @@ class GlasmioPerformanceTest {
     @Test fun lowRamIsMinimal() {
         assertEquals(GlasmioPerformanceTier.Minimal, tier("Qualcomm SM8650", 16.0, low = true))
         assertEquals(GlasmioPerformanceTier.Minimal, tier("unknown", 2.0))
+    }
+
+    @Test fun tiersDropOpticsInsteadOfComponents() {
+        val base = GlassAppearance()
+        GlasmioPerformance.config = GlasmioPerformanceConfig(GlasmioPerformanceTier.Full)
+        assertEquals(base, GlasmioPerformance.adjust(base))
+        GlasmioPerformance.config = GlasmioPerformanceConfig(GlasmioPerformanceTier.Efficient)
+        GlasmioPerformance.adjust(base).let { assertFalse(it.usesRefraction); assertTrue(it.usesBackdrop) }
+        GlasmioPerformance.config = GlasmioPerformanceConfig(GlasmioPerformanceTier.Minimal)
+        assertFalse(GlasmioPerformance.adjust(base).usesBackdrop)
+        GlasmioPerformance.config = GlasmioPerformanceConfig(GlasmioPerformanceTier.Efficient, refraction = true)
+        assertTrue(GlasmioPerformance.adjust(base).usesRefraction)
     }
 
     @Test fun fullTierLeavesSamplingUntouched() {
