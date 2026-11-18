@@ -842,7 +842,7 @@ internal fun Modifier.navigationGlassBackgroundResolved(
                     } ?: coating.asComposeRenderEffect()
                 } else if (nativeRecipe == null && navigationMaterial && !isDark && !preserveBackdropColors) liftNavigationShadows()
                 if (sampledPressRenderer != null) {
-                    val captureScale = samplingScale(size, this)
+                    val captureScale = GlasmioPerformance.sampling(samplingScale(size, this))
                     val source = sampledPressHighlight?.invoke(size / captureScale)
                     val press = source?.highlight
                     if (source != null && press != null && press.glowProgress > 0f) {

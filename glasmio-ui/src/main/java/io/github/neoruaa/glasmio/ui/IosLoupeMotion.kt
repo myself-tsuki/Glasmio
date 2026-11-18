@@ -1,5 +1,6 @@
 package io.github.neoruaa.glasmio.ui
 
+import io.github.neoruaa.glasmio.core.GlasmioFrameGate
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.Immutable
 import androidx.compose.runtime.LaunchedEffect
@@ -460,8 +461,10 @@ fun rememberGlasmioLoupeFollow(
     LaunchedEffect(state, enabled) {
         if (!enabled) return@LaunchedEffect
         var lastFrame = 0L
+        val gate = GlasmioFrameGate()
         while (isActive) {
             val frameTime = withFrameNanos { it }
+            if (!gate.accept(frameTime)) continue
             val elapsed = if (lastFrame == 0L) ReferenceFrameSeconds
             else (frameTime - lastFrame) / 1_000_000_000f
             lastFrame = frameTime
@@ -588,8 +591,10 @@ internal fun rememberLoupeVelocitySample(position: Offset, enabled: Boolean = tr
         var velocitySize = 0
         var acceleration = Offset.Zero
         var lastFrame = 0L
+        val gate = GlasmioFrameGate()
         while (isActive) {
             val frameTime = withFrameNanos { it }
+            if (!gate.accept(frameTime)) continue
             val elapsed = if (lastFrame == 0L) ReferenceFrameSeconds
             else (frameTime - lastFrame) / 1_000_000_000f
             lastFrame = frameTime
@@ -703,8 +708,10 @@ internal fun rememberLoupeSpringOffset(
     LaunchedEffect(stiffness, enabled) {
         if (!enabled) return@LaunchedEffect
         var lastFrame = 0L
+        val gate = GlasmioFrameGate()
         while (isActive) {
             val frameTime = withFrameNanos { it }
+            if (!gate.accept(frameTime)) continue
             val elapsed = if (lastFrame == 0L) ReferenceFrameSeconds
             else (frameTime - lastFrame) / 1_000_000_000f
             lastFrame = frameTime

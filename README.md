@@ -12,6 +12,7 @@ Glasmio combines iOS runtime analysis, UIKit and SwiftUI inspection, design refe
 
 - **Liquid Glass:** An Android rendering pipeline translates recovered material equations and measured recipes into backdrop sampling, blur, optical refraction, highlights, shadows, tint, and HDR-aware effects. Control lenses and liquid menu morphs have their own material behavior. See [native material rendering](docs/native-materials.md).
 - **Motion and interaction:** Navigation transitions, collapsing headers, gestures, menus, and sheets use motion and interaction models informed by native analysis and captures, including spring response and gesture release behavior. See the [navigation](docs/ios-navigation-motion.md), [sheet](docs/ios-sheet-motion.md), and [menu](docs/dropdown-motion.md) references.
+- **Performance tiers:** Auto-detected `Full`/`Balanced`/`Efficient`/`Minimal` tiers, a glass frame-rate cap and a backdrop downscale keep mid-range and older SoCs smooth. See [performance tiers](docs/performance-tiers.md).
 - **Components:** Controls, lists, typography, text selection, and other surfaces bring the researched geometry and behavior into Jetpack Compose. See the [design reference](docs/design-reference.md) and [component catalog](docs/components.md).
 
 Glasmio implements these effects and interactions independently for Android; it does not execute Apple's Metal binaries. Host applications can supply their own fonts and symbols.
@@ -34,7 +35,7 @@ Glasmio implements these effects and interactions independently for Android; it 
 | --- | --- | --- |
 | ![Sheet opening, expanding and dismissing](docs/images/showcase/sheet-motion.gif) | ![Text selection and expanded editing toolbar](docs/images/showcase/text-toolbar.gif) | ![Liquid menu opening and closing](docs/images/showcase/menu.gif) |
 
-All six libraries share version `0.1.3` and the Maven group `io.github.neoruaa.glasmio`.
+All six libraries share version `0.2.0` and the Maven group `io.github.neoruaa.glasmio`.
 
 ## Demo app
 
@@ -104,8 +105,8 @@ Then declare the modules you need:
 
 ```kotlin
 dependencies {
-    implementation("io.github.neoruaa.glasmio:glasmio-scaffold:0.1.3")
-    implementation("io.github.neoruaa.glasmio:glasmio-preference:0.1.3")
+    implementation("io.github.neoruaa.glasmio:glasmio-scaffold:0.2.0")
+    implementation("io.github.neoruaa.glasmio:glasmio-preference:0.2.0")
 }
 ```
 

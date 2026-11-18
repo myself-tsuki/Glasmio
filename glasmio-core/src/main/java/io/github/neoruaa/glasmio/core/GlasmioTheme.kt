@@ -113,7 +113,7 @@ fun GlasmioTheme(
     val materialTypography = remember(sizedTypography, letterSpacing) { sizedTypography.withLetterSpacing(letterSpacing) }
     CompositionLocalProvider(
         LocalGlassColors provides colors,
-        LocalGlassAppearance provides appearance,
+        LocalGlassAppearance provides GlasmioPerformance.adjust(appearance),
         LocalGlassDimensions provides dimensions,
         LocalGlasmioShapes provides shapes,
         LocalGlasmioSpacing provides spacing,

@@ -1,5 +1,6 @@
 package io.github.neoruaa.glasmio.scaffold
 
+import io.github.neoruaa.glasmio.core.GlasmioFrameGate
 import androidx.activity.compose.BackHandler
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.FloatAnimationSpec
@@ -246,7 +247,9 @@ fun GlasmioAdaptiveNavigationScaffold(
         if (!native.running) return@LaunchedEffect
         val scale = currentCoroutineContext()[MotionDurationScale]?.scaleFactor ?: 1f
         var previous = 0L
+        val gate = GlasmioFrameGate()
         while (native.running) withFrameNanos { now ->
+            if (!gate.accept(now)) return@withFrameNanos
             val dt = if (previous == 0L) 0f else (now - previous) / 1e9f / scale.coerceAtLeast(.01f)
             previous = now
             native.advance(dt, scale == 0f)

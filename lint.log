@@ -1,0 +1,14 @@
+[0.000s][warning][os,container] Cgroup memory controller path at '/sys/fs/cgroup' seems to have moved to '/../../jupyter-children', detected limits won't be accurate
+[0.000s][warning][os,container] Cgroup cpu controller path at '/sys/fs/cgroup' seems to have moved to '/../../jupyter-children', detected limits won't be accurate
+Wrote HTML report to file:///content/curialy-workspaces/bf6c4709-b589-42c8-8a53-b049357262d9/glasmio-core/build/reports/lint-results-debug.html
+Wrote SARIF report to file:///content/curialy-workspaces/bf6c4709-b589-42c8-8a53-b049357262d9/glasmio-core/build/reports/lint-results-debug.sarif
+Wrote HTML report to file:///content/curialy-workspaces/bf6c4709-b589-42c8-8a53-b049357262d9/glasmio-glass/build/reports/lint-results-debug.html
+Wrote SARIF report to file:///content/curialy-workspaces/bf6c4709-b589-42c8-8a53-b049357262d9/glasmio-glass/build/reports/lint-results-debug.sarif
+Wrote HTML report to file:///content/curialy-workspaces/bf6c4709-b589-42c8-8a53-b049357262d9/glasmio-preference/build/reports/lint-results-debug.html
+Wrote SARIF report to file:///content/curialy-workspaces/bf6c4709-b589-42c8-8a53-b049357262d9/glasmio-preference/build/reports/lint-results-debug.sarif
+Wrote HTML report to file:///content/curialy-workspaces/bf6c4709-b589-42c8-8a53-b049357262d9/glasmio-ui/build/reports/lint-results-debug.html
+Wrote SARIF report to file:///content/curialy-workspaces/bf6c4709-b589-42c8-8a53-b049357262d9/glasmio-ui/build/reports/lint-results-debug.sarif
+Wrote HTML report to file:///content/curialy-workspaces/bf6c4709-b589-42c8-8a53-b049357262d9/glasmio-scaffold/build/reports/lint-results-debug.html
+Wrote SARIF report to file:///content/curialy-workspaces/bf6c4709-b589-42c8-8a53-b049357262d9/glasmio-scaffold/build/reports/lint-results-debug.sarif
+Wrote HTML report to file:///content/curialy-workspaces/bf6c4709-b589-42c8-8a53-b049357262d9/sample/build/reports/lint-results-debug.html
+Wrote SARIF report to file:///content/curialy-workspaces/bf6c4709-b589-42c8-8a53-b049357262d9/sample/build/reports/lint-results-debug.sarif

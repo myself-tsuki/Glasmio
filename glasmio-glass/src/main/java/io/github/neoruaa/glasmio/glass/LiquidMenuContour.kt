@@ -339,7 +339,7 @@ class LiquidMenuGaussianField {
         if (sigma <= 0.000001f) {
             return deactivate()
         }
-        step = max(2f, sigma / 4f)
+        step = GlasmioPerformance.fieldStep(max(2f, sigma / 4f))
         val localSigma = sigma / step
         val maximumRadius = ceil(localSigma * 4f).toInt().coerceAtMost(weights.lastIndex)
         var sum = 0f

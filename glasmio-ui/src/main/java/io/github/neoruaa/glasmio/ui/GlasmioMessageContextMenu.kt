@@ -89,14 +89,16 @@ fun GlasmioMessageContextMenu(
             progress.animateTo(1f, spring(dampingRatio = 0.8f, stiffness = 385.5314f))
         } else if (alive) {
             val actionAtClose = pendingAction
-            val started = withFrameNanos { it }
+            val started = System.nanoTime()
             // _UIRapidClickPresentationAssistant: action dismissal uses response .35;
             // outside/back dismissal uses response .4. Both have damping ratio .85.
             progress.animateTo(0f, spring(dampingRatio = 0.85f,
                 stiffness = if (pendingAction != null) 322.2728f else 246.7401f))
             if (retainedReactions.isNotEmpty()) {
                 val retainedNanos = MessageContextMotion.ExitRetentionMillis * 1_000_000
-                while (withFrameNanos { it } - started < retainedNanos) { /* Keep the native tail channels mounted. */ }
+                // Keep the native tail channels mounted without waking the frame clock every vsync.
+                val remainingMillis = (retainedNanos - (System.nanoTime() - started)) / 1_000_000
+                if (remainingMillis > 0) kotlinx.coroutines.delay(remainingMillis)
             }
             alive = false
             session = null
