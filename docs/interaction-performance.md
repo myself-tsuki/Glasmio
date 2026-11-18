@@ -133,3 +133,7 @@ The [Compose/HWUI boundary audit](../.local-research/performance/render-architec
 Retain popup-dismissal frames through Perfetto after their windows are destroyed. Historical interaction-only samples exclude route preparation; current full-sequence captures include it. Keep app SurfaceFrame latency separate from UI and RenderThread scope durations. This HyperOS device sets frame flag bit 32 during ordinary rendering; do not discard all nonzero flags or trust its malformed frame-deadline counters. Retain raw frame timestamps and report UI, Draw and RenderThread costs separately.
 
 Supplemental pre-launch traces include the first app draw and shared-shader compilation. Treat nonzero Perfetto buffer-overwrite statistics as data loss even when the service labels them informational. Keep algorithm microbenchmarks, scheduled CPU time, frame latency and physical-device acceptance separate.
+
+## Performance tiers
+
+Device tiers, the glass frame-rate cap and the backdrop downscale are described in [performance-tiers.md](performance-tiers.md). They are applied at the sampling-scale chokepoints (`DrawBackdropModifier`, `GlassSurface` press capture), the shared `withFrameNanos` clocks and the luminance probe; `Full` preserves every invariant above unchanged.

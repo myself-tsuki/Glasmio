@@ -9,6 +9,7 @@
 
 package io.github.neoruaa.glasmio.glass.render
 
+import io.github.neoruaa.glasmio.core.GlasmioPerformance
 import io.github.neoruaa.glasmio.glass.NativeGlassAtlasBackingCopy
 import io.github.neoruaa.glasmio.glass.NativeGlassAtlasPasses
 import androidx.compose.runtime.getValue
@@ -663,7 +664,8 @@ private class DrawBackdropNode(
         val headroom = nativeGlassDisplayHeadroom(requireView())
         val headroomChanged = effectScope.nativeGlassHeadroom != headroom
         effectScope.nativeGlassHeadroom = headroom
-        val geometryChanged = effectScope.update(this, samplingScale(size, this))
+        GlasmioPerformance.ensureDetected(requireView().context)
+        val geometryChanged = effectScope.update(this, GlasmioPerformance.sampling(samplingScale(size, this)))
         if (effectsDirty || geometryChanged || colorSpaceChanged || headroomChanged) {
             observeEffects()
             effectsDirty = false
@@ -909,8 +911,8 @@ private class DrawBackdropNode(
             var capturedRevision = luminanceProbeRevision
             try {
                 val elapsed = System.nanoTime() - lastLuminanceStartNanos
-                // Bound readback to 30 Hz, with at most one snapshot in flight.
-                val waitNanos = 33_333_333L - elapsed
+                // Bound readback by the performance tier (30 Hz at Full), with at most one snapshot in flight.
+                val waitNanos = GlasmioPerformance.luminanceProbeIntervalNanos - elapsed
                 if (waitNanos > 0L) delay((waitNanos + 999_999L) / 1_000_000L)
                 if (!isAttached || generation != luminanceGeneration || luminanceState !== state) return@launch
                 if (luminanceSourceDirty) {

@@ -183,9 +183,13 @@ class LiquidMenuMorphMotion {
         runningRequest = currentRequest
         runningJob = currentCoroutineContext().job
         try {
+            val gate = GlasmioFrameGate()
             var previousFrame = withFrameNanos { it }
+            gate.accept(previousFrame)
             while (currentRequest == request) {
                 val currentFrame = withFrameNanos { it }
+                // Glass updates at the configured cap; the elapsed time still spans every skipped frame.
+                if (!gate.accept(currentFrame)) continue
                 val seconds = ((currentFrame - previousFrame) / 1_000_000_000.0).toFloat()
                 previousFrame = currentFrame
                 if (advanceBy(seconds)) return

@@ -799,8 +799,10 @@ private fun HeaderGroup(
         val scale = currentCoroutineContext()[MotionDurationScale]?.scaleFactor ?: 1f
         state.durationScale = scale
         reduced.value = scale == 0f
+        val gate = GlasmioFrameGate()
         do {
-            withFrameNanos { now -> state.tick(now, reduced.value); revision++ }
+            // Frames skipped by the glass frame-rate cap neither tick nor recompose; tick() integrates real elapsed time.
+            withFrameNanos { now -> if (gate.accept(now) || reduced.value) { state.tick(now, reduced.value); revision++ } }
         } while (!state.settled)
         state.lastTick = 0L
     }

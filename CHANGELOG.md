@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.2.0
+
+- Add `GlasmioPerformance`: device-tier detection (Auto), `Full`/`Balanced`/`Efficient`/`Minimal` tiers, a glass frame-rate cap and a backdrop downscale, all runtime-switchable. See `docs/performance-tiers.md`.
+- Gate the scaffold, adaptive navigation, menu morph, loupe and reaction-bar clocks by the cap; skipped frames no longer recompose or update shaders.
+- Space luminance read-backs by tier, coarsen the liquid-menu field grid on lower tiers, memoize the native-atlas shader key, and stop the context-menu exit from spinning the frame clock.
+- `Full` keeps the previous rendering path.
+
 ## 0.1.3
 
 - Reuse compiled glass programs across navigation, menu, and header transitions.

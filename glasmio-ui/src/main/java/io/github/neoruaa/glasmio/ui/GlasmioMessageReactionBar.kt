@@ -1,5 +1,6 @@
 package io.github.neoruaa.glasmio.ui
 
+import io.github.neoruaa.glasmio.core.GlasmioFrameGate
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
@@ -117,7 +118,11 @@ internal fun GlasmioMessageReactionBar(
         elapsed = 0L
         val start = withFrameNanos { it }
         val duration = if (expanded) MessageContextMotion.EnterDurationMillis else MessageContextMotion.ExitRetentionMillis
-        while (elapsed < duration * 1_000_000) elapsed = withFrameNanos { it } - start
+        val gate = GlasmioFrameGate()
+        while (elapsed < duration * 1_000_000) {
+            val frame = withFrameNanos { it }
+            if (gate.accept(frame) || frame - start >= duration * 1_000_000L) elapsed = frame - start
+        }
     }
     val progress = values()
     val scale = density.fontScale.coerceIn(.88f, 1.3f)

@@ -201,9 +201,10 @@ private fun BackdropEffectScope.nativeAtlasNavigationFilter(
     val sources = storage.cachedResource("Glasmio.NativeAtlas.material.sources") {
         mutableMapOf<NativeAtlasMaterialSourceKey, String>()
     }
-    val program = sources.getOrPut(NativeAtlasMaterialSourceKey(
+    val sourceKey = NativeAtlasMaterialSourceKey(
         functions, atlas.colorManaged, atlas.nativeGammaStorage, completionTopology, atlas.samplingLayoutKey,
-    )) {
+    )
+    val program = sources.getOrPut(sourceKey) {
         (if (completion != null) nativeGlassCompletionFieldFunctions(functions) else functions) +
             (if (completionTopology?.hasSourceShadow == true &&
                 !functions.contains("float3 nativeGlassRoundedField(")) NativeGlassSdfFunctions else "") +
@@ -211,8 +212,14 @@ private fun BackdropEffectScope.nativeAtlasNavigationFilter(
         else (if (!atlas.colorManaged) GlassColorSpaceShaderFunctions else "") +
             nativeGlassCompletionShader(requireNotNull(completionTopology))
     }
-    val shader = obtainRuntimeShader("Glasmio.NativeAtlas.material.${atlas.colorManaged}.${atlas.nativeGammaStorage}.${completion != null}.${completionTopology?.cacheKey ?: 0}.layout=${atlas.samplingLayoutKey}.${functions.hashCode()}",
-        program).asAndroidRuntimeShader()
+    // The runtime-shader key is rebuilt on every effect update; memoize it per immutable source identity.
+    val shaderKeys = storage.cachedResource("Glasmio.NativeAtlas.material.keys") {
+        mutableMapOf<NativeAtlasMaterialSourceKey, String>()
+    }
+    val shaderKey = shaderKeys.getOrPut(sourceKey) {
+        "Glasmio.NativeAtlas.material.${atlas.colorManaged}.${atlas.nativeGammaStorage}.${completion != null}.${completionTopology?.cacheKey ?: 0}.layout=${atlas.samplingLayoutKey}.${functions.hashCode()}"
+    }
+    val shader = obtainRuntimeShader(shaderKey, program).asAndroidRuntimeShader()
     atlas.configure(shader)
     if (field == null) {
         shader.setFloatUniform("size", size.width, size.height)
