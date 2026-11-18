@@ -170,6 +170,7 @@ GlasmioIconProvider(symbolTypeface = symbolTypeface) {
 - [iOS 玻璃放大镜动效参考](docs/ios-loupe-motion.zh-CN.md)
 - [从 MeiloX 迁移](MIGRATION.md)
 - [模块与依赖边界](docs/migration-dependencies.md)
+- [性能档位、帧率上限与背景降采样](docs/performance-tiers.md)（英文）
 - [发布](docs/releasing.md)
 - [更新日志](CHANGELOG.md)
 

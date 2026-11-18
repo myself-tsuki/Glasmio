@@ -51,3 +51,103 @@ The design invariants in [interaction-performance.md](interaction-performance.md
 ## Verifying on a device
 
 Follow [interaction-performance.md → Device measurement](interaction-performance.md#device-measurement): Perfetto FrameTimeline on a physical device, cleared shader caches, p50/p95/p99 and deadline misses per tier. Suggested matrix: `Full` vs `Balanced` on an SD865, `Balanced` vs `Efficient` on an Exynos 1200, each with cap 0/60/30 on the Controls scroll, a menu open/close and a sheet drag. These numbers have not been collected yet.
+
+## Usage guide
+
+### 1. Do nothing (Auto)
+
+Auto works without any code. The first glass surface that draws classifies the device and applies the matching tier. Call `GlasmioPerformance.configure(applicationContext)` in `Application.onCreate` only if you want detection to finish before the first frame.
+
+### 2. Read what is in force
+
+```kotlin
+val tier = GlasmioPerformance.tier           // configured tier, else detected, else Full
+val cap = GlasmioPerformance.frameRateCap    // Hz, 0 = uncapped
+```
+
+Both are Compose snapshot reads, so a composable that reads them updates when `config` changes.
+
+### 3. Set a fixed configuration
+
+```kotlin
+class App : Application() {
+    override fun onCreate() {
+        super.onCreate()
+        GlasmioPerformance.configure(
+            this,
+            GlasmioPerformanceConfig(tier = GlasmioPerformanceTier.Efficient, frameRateCap = 30),
+        )
+    }
+}
+```
+
+Any property left `null` follows the tier. `tier = null` means Auto.
+
+### 4. Let the user choose (settings screen)
+
+```kotlin
+@Composable
+fun GraphicsQualitySetting() {
+    val current = GlasmioPerformance.config
+    val options = listOf<GlasmioPerformanceTier?>(null) + GlasmioPerformanceTier.entries
+    Column {
+        options.forEach { option ->
+            Row(Modifier.selectable(current.tier == option, onClick = {
+                GlasmioPerformance.config = current.copy(tier = option)
+            })) {
+                RadioButton(selected = current.tier == option, onClick = null)
+                Text(option?.name ?: "Auto (${GlasmioPerformance.tier.name})")
+            }
+        }
+        Text("Glass frame rate: ${current.frameRateCap ?: GlasmioPerformance.frameRateCap} Hz")
+        Slider(
+            value = (current.frameRateCap ?: GlasmioPerformance.frameRateCap).toFloat(),
+            onValueChange = { GlasmioPerformance.config = current.copy(frameRateCap = it.toInt()) },
+            valueRange = 0f..120f, steps = 3,
+        )
+    }
+}
+```
+
+Persist the choice yourself (DataStore or SharedPreferences) and restore it with `GlasmioPerformance.config = ...` at startup.
+
+### 5. Recipes
+
+| Goal | Configuration |
+| --- | --- |
+| Original look on every device | `tier = Full` |
+| Keep lens refraction but lower GPU load | `tier = Balanced`, or `Full` with `samplingScale = 0.6f` |
+| Smooth on Snapdragon 865 / Exynos 1200 | `tier = Efficient` (this is what Auto picks) |
+| Efficient look but keep the lens on small controls | `tier = Efficient, refraction = true` |
+| Battery saver | `tier = Efficient, frameRateCap = 30` |
+| Lowest cost, no page capture | `tier = Minimal` or `backdrop = false` |
+| Render glass at 30 Hz on a 120 Hz screen | `frameRateCap = 30` (display refresh is unaffected) |
+
+### 6. Behavior notes
+
+- Changing `config` at runtime re-renders glass surfaces immediately, except the liquid-menu field step, which applies at the next geometry change.
+- `frameRateCap` only gates Glasmio's own animation clocks. Compose scrolling, `animate*AsState` and your own animations are not capped. Use divisors of the panel rate (30/40/60 on 120 Hz; 30 on 60 Hz) to avoid uneven cadence.
+- `refraction = false` is the same appearance as `GlassAppearance(liquidGlassEnabled = false)`; `backdrop = false` is the same as `reduceTransparency = true`. The host's own `GlassAppearance` is still respected: a tier can only turn effects off, never on.
+- The tier is applied inside `GlasmioTheme`. If you provide `LocalGlassAppearance` yourself outside `GlasmioTheme`, pass it through `GlasmioPerformance.adjust(appearance)`.
+- `samplingScale` has a floor of 0.25; most small controls already sample at 0.25–0.5, so it mainly affects menus, sheets, sidebars and full-resolution backdrops.
+
+### 7. Troubleshooting
+
+| Symptom | Try |
+| --- | --- |
+| Still slow with many glass surfaces | `backdrop = false` on that tier, or fewer simultaneous glass surfaces; each one references the page layer |
+| Glass looks flat | Auto may have chosen `Minimal` (low RAM); set `tier = Efficient` or `Balanced` |
+| Wrong tier detected for your device | Set `tier` explicitly; Auto reads `Build.SOC_MODEL`, RAM and `isLowRamDevice` |
+| Glass lags behind finger during drags at 30 Hz | Raise `frameRateCap` to 60 or 0 |
+
+### API reference
+
+| Symbol | Purpose |
+| --- | --- |
+| `GlasmioPerformanceTier` | `Full`, `Balanced`, `Efficient`, `Minimal` presets |
+| `GlasmioPerformanceConfig(tier, frameRateCap, samplingScale, refraction, backdrop)` | Host overrides; `null` follows the tier |
+| `GlasmioPerformance.config` | Observable current config (get/set) |
+| `GlasmioPerformance.configure(context, config)` | Detect the device, install a config |
+| `GlasmioPerformance.tier` / `frameRateCap` | Values in force |
+| `GlasmioPerformance.sampling(base)` / `adjust(appearance)` / `fieldStep(base)` | Hooks used by the renderer |
+| `GlasmioFrameGate` | Per-loop frame limiter for your own `withFrameNanos` clocks: `if (gate.accept(now)) update()` |

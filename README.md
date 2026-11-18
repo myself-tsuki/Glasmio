@@ -93,22 +93,40 @@ You can also set `glasmio.symbolFont` and `glasmio.italicFont` in the ignored ro
 
 ## Use in an application
 
-Enable Google Maven and Maven Central in your application's settings:
+Enable Google Maven, Maven Central and JitPack in your application's settings:
 
 ```kotlin
 dependencyResolutionManagement {
-    repositories { google(); mavenCentral() }
+    repositories { google(); mavenCentral(); maven("https://jitpack.io") }
 }
 ```
 
-Then declare the modules you need:
+Then declare the modules you need. Replace `TAG` with a release tag of this repository (for example `v1.0.0`):
 
 ```kotlin
 dependencies {
-    implementation("io.github.neoruaa.glasmio:glasmio-scaffold:0.2.0")
-    implementation("io.github.neoruaa.glasmio:glasmio-preference:0.2.0")
+    implementation("com.github.myself-tsuki.Glasmio:glasmio-scaffold:TAG")
+    implementation("com.github.myself-tsuki.Glasmio:glasmio-preference:TAG")
 }
 ```
+
+This fork is not on Maven Central, so the `io.github.neoruaa.glasmio` coordinates only resolve for the upstream project. Release AARs are also attached to each GitHub release, and [docs/releasing.md](docs/releasing.md) lists local and source-include options.
+
+### Performance on mid-range and older phones
+
+Glasmio picks a rendering tier for the device automatically. To control it, set the tier, a glass frame-rate cap or a backdrop downscale at any time:
+
+```kotlin
+GlasmioPerformance.configure(applicationContext) // optional: detects the device early (Auto)
+
+GlasmioPerformance.config = GlasmioPerformanceConfig(
+    tier = GlasmioPerformanceTier.Efficient, // null = Auto
+    frameRateCap = 30,                       // glass updates per second; 0 = every display frame
+    samplingScale = 0.5f,                    // backdrop downscale, 0.25..1
+)
+```
+
+See [Performance tiers](docs/performance-tiers.md) for what each tier changes, the settings-screen recipe and troubleshooting.
 
 Install the theme and an explicit backdrop host. Keep the sampled background separate from glass controls:
 
@@ -168,6 +186,8 @@ The example uses `androidx.compose.ui.platform.LocalContext`, `androidx.core.con
 - [Component catalog and examples](docs/components.md)
 - [Backdrop hosting and modal sampling](docs/backdrop.md)
 - [Native material rendering and automatic appearance](docs/native-materials.md)
+- [Performance tiers, frame-rate cap and backdrop downscale](docs/performance-tiers.md)
+- [Interaction performance invariants and measurement](docs/interaction-performance.md)
 - [iOS glass loupe motion reference](docs/ios-loupe-motion.zh-CN.md) (Chinese)
 - [Migration from MeiloX](MIGRATION.md)
 - [Module and dependency boundaries](docs/migration-dependencies.md)

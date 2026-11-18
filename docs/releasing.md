@@ -57,3 +57,7 @@ implementation("com.github.myself-tsuki.Glasmio:glasmio-scaffold:v0.2.0")
 **Local only.** `./gradlew publishToMavenLocal`, add `mavenLocal()` to your repositories and use `io.github.neoruaa.glasmio:glasmio-ui:0.2.0`.
 
 **Source include.** Add this repo as a git submodule and `includeBuild("Glasmio")` in your `settings.gradle.kts`.
+
+## GitHub release without credentials
+
+`scripts/github-release.workflow.yml` is a ready workflow; copy it to `.github/workflows/github-release.yml` (pushing workflow files needs a GitHub connection with the `workflow` permission). It runs the unit tests, stages all six libraries and creates (or updates) a GitHub release for a tag, attaching each AAR and `glasmio-maven-repository.zip`. Trigger it from Actions → GitHub Release → Run workflow and enter the tag, or push a `v*` tag. It uses only the built-in `GITHUB_TOKEN`. If the tag does not exist the release is created from the commit the workflow ran on.
