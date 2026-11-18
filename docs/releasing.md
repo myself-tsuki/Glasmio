@@ -39,3 +39,21 @@ python3 scripts/release_bundle.py --upload
 ```
 
 After publication, run `python3 scripts/verify_consumer.py --central` to build a clean consumer without the staging repository. Update the release status in README and CHANGELOG, and update MeiloX with the fixed version. CI should use published coordinates. Developers can explicitly opt into the local composite build for ongoing work.
+
+## Using a fork without Maven Central
+
+No Maven account is needed. `publishToMavenLocal` builds all six libraries (including the native code) and works without signing keys.
+
+**JitPack (any app, any machine).** Create a GitHub release with tag `v0.2.0`, then open `https://jitpack.io/#myself-tsuki/Glasmio` and press Get it once to build it. `jitpack.yml` installs SDK 37, NDK 27.1 and CMake. In your app:
+
+```kotlin
+// settings.gradle.kts
+dependencyResolutionManagement { repositories { google(); mavenCentral(); maven("https://jitpack.io") } }
+// app/build.gradle.kts
+implementation("com.github.myself-tsuki.Glasmio:glasmio-ui:v0.2.0")
+implementation("com.github.myself-tsuki.Glasmio:glasmio-scaffold:v0.2.0")
+```
+
+**Local only.** `./gradlew publishToMavenLocal`, add `mavenLocal()` to your repositories and use `io.github.neoruaa.glasmio:glasmio-ui:0.2.0`.
+
+**Source include.** Add this repo as a git submodule and `includeBuild("Glasmio")` in your `settings.gradle.kts`.

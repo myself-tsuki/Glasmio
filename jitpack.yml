@@ -1,0 +1,9 @@
+# Lets anyone consume a tag straight from GitHub, with no Maven Central account:
+#   maven("https://jitpack.io"); implementation("com.github.myself-tsuki.Glasmio:glasmio-ui:v0.2.0")
+jdk:
+  - openjdk21
+before_install:
+  - yes | sdkmanager --licenses > /dev/null || true
+  - sdkmanager --channel=3 "platforms;android-37.0" "build-tools;36.0.0" "ndk;27.1.12297006" "cmake;3.22.1"
+install:
+  - ./gradlew --no-daemon publishToMavenLocal -x test -x lint
