@@ -1,5 +1,9 @@
 # Changelog
 
+## Unreleased
+
+- Fix navigation bar and pill surfaces rendering oversized/cropped on non-Full performance tiers: the tier downscale no longer applies to surfaces that sample at full size (contact, toolbar and union shapes).
+
 ## 0.2.0
 
 - Add `GlasmioPerformance`: device-tier detection (Auto), `Full`/`Balanced`/`Efficient`/`Minimal` tiers, a glass frame-rate cap and a backdrop downscale, all runtime-switchable. See `docs/performance-tiers.md`.

@@ -80,8 +80,12 @@ object GlasmioPerformance {
     /** Effective glass update rate in Hz; 0 means uncapped. */
     val frameRateCap: Int get() = state.frameRateCap ?: tier.frameRateCap
 
-    /** Applies the tier or explicit downscale to a surface's own [base] backdrop scale. */
+    /** Applies the tier or explicit downscale to a surface's own [base] backdrop scale; full-size (1) surfaces stay 1. */
     fun sampling(base: Float): Float {
+        // A base of 1 means the surface (navigation bar, pills, contact/toolbar shapes, union shapes) renders its
+        // optics at exact full-size geometry and does not support a downscaled source; scaling it shrinks the
+        // capture while the shape stays full size, so the glass appears oversized and cropped.
+        if (base >= 1f) return base
         val multiplier = state.samplingScale ?: tier.samplingMultiplier
         return if (multiplier >= 1f) base else (base * multiplier).coerceAtLeast(MinimumSamplingScale)
     }
