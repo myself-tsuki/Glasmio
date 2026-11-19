@@ -677,7 +677,7 @@ private class DrawBackdropNode(
         val view = requireView()
         if (!luminanceOnly && exportedBackdrop == null &&
             GlassFrameCache.applies(view, effectScope.nativeGlassHardwareRendering, managed, headroom)) {
-            if (frameCache == null) frameCache = GlassFrameCache(view, coroutineScope) { if (isAttached) invalidateDraw() }
+            if (frameCache == null) frameCache = GlassFrameCache(view) { if (isAttached) invalidateDraw() }
         } else releaseFrameCache()
         if (effectsDirty || geometryChanged || colorSpaceChanged || headroomChanged) {
             observeEffects()

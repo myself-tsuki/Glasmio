@@ -10,6 +10,7 @@ import android.media.Image
 import android.media.ImageReader
 import android.os.Handler
 import android.os.Looper
+import android.view.Choreographer
 import android.view.View
 import android.view.ViewTreeObserver
 import androidx.compose.ui.graphics.Canvas
@@ -25,101 +26,139 @@ import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.unit.toSize
 import io.github.neoruaa.glasmio.core.GlasmioPerformance
 import java.util.WeakHashMap
-import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.Job
-import kotlinx.coroutines.delay
-import kotlinx.coroutines.launch
 
 /**
- * Decides when a capped glass surface renders again. Pure, so the cadence can be unit tested.
+ * When the process-wide glass clock ticks. Pure, so the cadence can be unit tested.
  *
- * Damage is not observable from Compose: content scrolling under the glass moves child render nodes without
- * re-recording the backdrop source. The window drawing is the damage signal instead. A frame the window drew for
- * anything else marks the glass dirty; a frame drawn only to present a new glass image does not, except once after
- * each burst ([settled]), so a change that landed in the same frame as a present is still picked up.
+ * Content changes under the glass are not observable from Compose (a scroll moves child render nodes without
+ * re-recording the backdrop source), so the clock does not try to detect them per surface. While anything in the
+ * app draws, every capped glass surface re-renders on a fixed cadence of capHz; after the last activity it keeps
+ * that cadence for [tailNanos] and then stops, so an idle screen does no glass work. Frames drawn only to show new
+ * glass images are not activity, otherwise an idle screen would keep the clock running forever.
  */
-internal class GlassFrameCadence {
-    var dirty = false
-        private set
-    private var settled = true
-    private var lastRenderNanos = Long.MIN_VALUE
+internal class GlassFrameSchedule {
+    private var lastActivity = Never
+    private var lastTick = Never
 
-    /** Records a window draw. Returns true when a render should be scheduled. */
-    fun onWindowDraw(presentOnly: Boolean): Boolean {
-        if (presentOnly) {
-            if (settled) return false
-            settled = true
-        } else settled = false
-        dirty = true
-        return true
+    fun onActivity(nowNanos: Long) {
+        lastActivity = nowNanos
     }
 
-    /** Nanoseconds to wait before the next render may start; 0 when one may start now. */
-    fun waitNanos(nowNanos: Long, capHz: Int): Long {
-        if (capHz <= 0 || lastRenderNanos == Long.MIN_VALUE) return 0L
-        // The same 3 ms jitter tolerance as GlasmioFrameGate, so 30 Hz on 60 Hz stays every other vsync.
-        val interval = 1_000_000_000L / capHz - 3_000_000L
-        return (lastRenderNanos + interval - nowNanos).coerceAtLeast(0L)
+    /** The time of the next tick, or [Never] when the clock should stop. */
+    fun nextTickAt(capHz: Int): Long {
+        if (capHz <= 0 || lastActivity == Never) return Never
+        if (lastTick != Never && lastTick >= lastActivity + tailNanos(capHz)) return Never
+        return if (lastTick == Never) lastActivity else lastTick + intervalNanos(capHz)
     }
 
-    fun onRendered(nowNanos: Long) {
-        dirty = false
-        lastRenderNanos = nowNanos
+    fun onTick(nowNanos: Long) {
+        lastTick = nowNanos
     }
 
-    fun reset() {
-        dirty = false
-        settled = true
-        lastRenderNanos = Long.MIN_VALUE
+    companion object {
+        const val Never = Long.MIN_VALUE
+
+        /** The same 3 ms jitter tolerance as GlasmioFrameGate, so 30 Hz on 60 Hz stays every other vsync. */
+        fun intervalNanos(capHz: Int): Long = (1_000_000_000L / capHz - 3_000_000L).coerceAtLeast(0L)
+
+        /** At least 250 ms and three glass frames: a change that lands in a present-only frame is still caught. */
+        fun tailNanos(capHz: Int): Long = maxOf(250_000_000L, 3L * 1_000_000_000L / capHz)
     }
 }
 
 /**
- * One draw listener per window. Glass images presented in a frame mark that frame as present-only, so caches in
- * the same window do not keep re-rendering each other.
+ * One clock for every capped glass surface in the process.
+ *
+ * All surfaces render in the same tick, so each window gets one present frame per glass frame and the frames in
+ * between are clearly app frames. Activity is collected from every window that hosts capped glass or a backdrop
+ * source, so glass in a popup (menus, sheets) keeps refreshing while the content window behind it scrolls.
  */
-private class GlassFrameWindow(val root: View) : ViewTreeObserver.OnDrawListener {
-    val caches = LinkedHashSet<GlassFrameCache>()
-    var presentPending = false
-    private var listening = false
+internal object GlassFrameClock : Choreographer.FrameCallback {
+    private class Window : ViewTreeObserver.OnDrawListener {
+        var users = 0
+        var presentPending = false
+        var observer: ViewTreeObserver? = null
+
+        override fun onDraw() {
+            if (presentPending) presentPending = false
+            else activity()
+        }
+    }
+
+    private val windows = WeakHashMap<View, Window>()
+    private val caches = LinkedHashSet<GlassFrameCache>()
+    private val schedule = GlassFrameSchedule()
+    private var posted = false
+
+    /** Counts [view]'s window as an activity source until [untrack]; returns the root to untrack. Main thread. */
+    fun track(view: View): View {
+        val root = view.rootView
+        val window = windows.getOrPut(root) { Window() }
+        window.users++
+        if (window.observer?.isAlive != true) {
+            val observer = root.viewTreeObserver
+            observer.addOnDrawListener(window)
+            window.observer = observer
+        }
+        return root
+    }
+
+    fun untrack(root: View) {
+        val window = windows[root] ?: return
+        if (--window.users > 0) return
+        windows.remove(root)
+        val observer = window.observer ?: return
+        window.observer = null
+        // A listener must not be removed while the observer dispatches it.
+        root.post { if (observer.isAlive) observer.removeOnDrawListener(window) }
+    }
 
     fun add(cache: GlassFrameCache) {
         caches += cache
-        if (!listening) {
-            root.viewTreeObserver.addOnDrawListener(this)
-            listening = true
-        }
     }
 
     fun remove(cache: GlassFrameCache) {
         caches -= cache
-        if (caches.isEmpty() && listening) {
-            listening = false
-            // A listener must not be removed while the observer dispatches it.
-            root.post { if (caches.isEmpty()) root.viewTreeObserver.takeIf { it.isAlive }?.removeOnDrawListener(this) }
-            Windows.remove(root)
-        }
     }
 
-    override fun onDraw() {
-        val presentOnly = presentPending
-        presentPending = false
-        for (cache in caches.toList()) cache.onWindowDraw(presentOnly)
+    /** The next draw of [root] only shows new glass images. */
+    fun presented(root: View) {
+        windows[root]?.presentPending = true
     }
 
-    companion object {
-        val Windows = WeakHashMap<View, GlassFrameWindow>()
-        fun of(view: View): GlassFrameWindow {
-            val root = view.rootView
-            return Windows.getOrPut(root) { GlassFrameWindow(root) }
+    /** Something changed (an app frame, a new or resized glass surface): keep the glass clock running. */
+    fun activity() {
+        schedule.onActivity(System.nanoTime())
+        post()
+    }
+
+    private fun post() {
+        if (posted || caches.isEmpty()) return
+        val at = schedule.nextTickAt(GlasmioPerformance.frameRateCap)
+        if (at == GlassFrameSchedule.Never) return
+        posted = true
+        val delayMillis = ((at - System.nanoTime()).coerceAtLeast(0L) + 999_999L) / 1_000_000L
+        Choreographer.getInstance().postFrameCallbackDelayed(this, delayMillis)
+    }
+
+    override fun doFrame(frameTimeNanos: Long) {
+        posted = false
+        val now = System.nanoTime()
+        val at = schedule.nextTickAt(GlasmioPerformance.frameRateCap)
+        if (at == GlassFrameSchedule.Never) return
+        if (at <= now + 1_000_000L) {
+            schedule.onTick(now)
+            for (cache in caches.toList()) cache.render()
         }
+        post()
     }
 }
 
 /**
  * Renders one glass layer (its whole filter chain: capture, mips, blur, lens, material) off screen at most
- * [GlasmioPerformance.frameRateCap] times per second, while the window keeps drawing at the panel rate. Between
- * renders the window draws the last image, which is one texture draw instead of the full chain.
+ * [GlasmioPerformance.frameRateCap] times per second on the shared [GlassFrameClock], while the window keeps drawing
+ * at the panel rate. Between renders the window draws the last image, which is one texture draw instead of the
+ * full chain.
  *
  * The off-screen renderer shares the process RenderThread and GPU context with the window, so it sees the same
  * live render nodes; it only runs them less often. Two images stay open (the one shown and the one before it), so a
@@ -127,17 +166,14 @@ private class GlassFrameWindow(val root: View) : ViewTreeObserver.OnDrawListener
  */
 internal class GlassFrameCache(
     private val view: View,
-    private val scope: CoroutineScope,
     private val requestPresent: () -> Unit,
 ) {
-    private val window = GlassFrameWindow.of(view).also { it.add(this) }
-    private val cadence = GlassFrameCadence()
+    private val root = GlassFrameClock.track(view)
     private val handler = Handler(Looper.getMainLooper())
-    private val root = RenderNode("GlasmioGlassFrame")
+    private val node = RenderNode("GlasmioGlassFrame")
     private var renderer: HardwareRenderer? = null
     private var reader: ImageReader? = null
     private var surfaceSize = IntSize.Zero
-    private var renderedSize = IntSize.Zero
     private var source: GraphicsLayer? = null
     private var sourceSize = IntSize.Zero
     private var sizeChangedNanos = 0L
@@ -145,8 +181,11 @@ internal class GlassFrameCache(
     private var shownBitmap: ImageBitmap? = null
     private var shownSize = IntSize.Zero
     private var retired: Image? = null
-    private var job: Job? = null
     private var released = false
+
+    init {
+        GlassFrameClock.add(this)
+    }
 
     /** Draws the cached image of [layer] when it matches the layer's current size, else the live layer. */
     fun draw(drawScope: DrawScope, layer: GraphicsLayer) {
@@ -159,56 +198,41 @@ internal class GlassFrameCache(
         if (bitmap != null && shownSize == layer.size) drawScope.drawImage(bitmap)
         else {
             drawScope.drawLayer(layer)
-            // Nothing shown yet (first frame, or a resize): queue a render so the cache takes over.
-            if (cadence.onWindowDraw(presentOnly = false)) schedule()
+            // Nothing shown yet (first frame, or a resize): keep the clock running so the cache takes over.
+            GlassFrameClock.activity()
         }
     }
 
-    fun onWindowDraw(presentOnly: Boolean) {
-        if (cadence.onWindowDraw(presentOnly)) schedule()
-    }
-
-    private fun schedule() {
-        if (released || job?.isActive == true) return
-        job = scope.launch {
-            while (!released && cadence.dirty) {
-                val cap = GlasmioPerformance.frameRateCap
-                val wait = cadence.waitNanos(System.nanoTime(), cap)
-                if (wait > 0L) delay((wait + 999_999L) / 1_000_000L)
-                if (released || !cadence.dirty) break
-                // Mid-resize, every image would arrive with a stale size and be thrown away; let the size settle.
-                val stable = System.nanoTime() - sizeChangedNanos
-                val minimum = if (cap > 0) 1_000_000_000L / cap else 0L
-                if (stable < minimum) { delay((minimum - stable + 999_999L) / 1_000_000L); continue }
-                render()
-                cadence.onRendered(System.nanoTime())
-            }
-        }
-    }
-
-    private fun render() {
+    /** Called by [GlassFrameClock] on a glass frame. */
+    fun render() {
+        if (released) return
         val layer = source ?: return
         val size = layer.size
         if (size.width <= 0 || size.height <= 0) return
-        val renderer = ensureSurface(size) ?: return
-        root.setPosition(0, 0, size.width, size.height)
-        val canvas = root.beginRecording(size.width, size.height)
+        // Mid-resize every image would arrive with a stale size and be thrown away; the live layer is drawn instead.
+        val cap = GlasmioPerformance.frameRateCap
+        if (cap > 0 && System.nanoTime() - sizeChangedNanos < 1_000_000_000L / cap) {
+            GlassFrameClock.activity()
+            return
+        }
+        val renderer = ensureSurface(size)
+        node.setPosition(0, 0, size.width, size.height)
+        val canvas = node.beginRecording(size.width, size.height)
         try {
             CanvasDrawScope().draw(Density(view.resources.displayMetrics.density), LayoutDirection.Ltr,
                 Canvas(canvas), size.toSize()) { drawLayer(layer) }
         } finally {
-            root.endRecording()
+            node.endRecording()
         }
-        renderedSize = size
         try {
             renderer.createRenderRequest().setWaitForPresent(false).syncAndDraw()
         } catch (_: RuntimeException) {
-            // A surface lost between frames; the next window draw re-creates it.
+            // A surface lost between frames; the next glass frame re-creates it.
             releaseSurface()
         }
     }
 
-    private fun ensureSurface(size: IntSize): HardwareRenderer? {
+    private fun ensureSurface(size: IntSize): HardwareRenderer {
         val current = renderer
         if (current != null && surfaceSize == size) return current
         releaseSurface()
@@ -218,7 +242,7 @@ internal class GlassFrameCache(
         reader.setOnImageAvailableListener({ onImage(it, imageSize) }, handler)
         val created = HardwareRenderer().apply {
             setSurface(reader.surface)
-            setContentRoot(root)
+            setContentRoot(node)
             isOpaque = false
         }
         this.reader = reader
@@ -239,7 +263,7 @@ internal class GlassFrameCache(
         shown = image
         shownBitmap = bitmap.asImageBitmap()
         shownSize = size
-        window.presentPending = true
+        GlassFrameClock.presented(root)
         requestPresent()
     }
 
@@ -251,17 +275,16 @@ internal class GlassFrameCache(
         renderer?.destroy(); renderer = null
         reader?.close(); reader = null
         surfaceSize = IntSize.Zero
-        root.discardDisplayList()
+        node.discardDisplayList()
     }
 
     fun release() {
         if (released) return
         released = true
-        job?.cancel(); job = null
-        window.remove(this)
+        GlassFrameClock.remove(this)
+        GlassFrameClock.untrack(root)
         releaseSurface()
         source = null
-        cadence.reset()
     }
 
     companion object {
