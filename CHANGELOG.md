@@ -3,6 +3,7 @@
 ## 0.2.1
 
 - Fix navigation bar and pill surfaces rendering oversized/cropped on non-Full performance tiers: the tier downscale no longer applies to surfaces that sample at full size (contact, toolbar and union shapes).
+- Merge upstream: glass popovers and tooltips, floating-window caption inset, pull-to-refresh indicator (`GlasmioPullToRefreshBox`), and Android 12 support with guarded glass rendering fallbacks.
 
 ## 0.2.0
 

@@ -18,9 +18,10 @@ Glasmio uses state-hoisted Compose APIs: pass a value and handle its change call
 | Toolbars | `GlasmioTopBar`, `GlasmioTopBarStyle`, `GlasmioToolbarActionGroup`, `GlasmioToolbarActionStyle`, `GlasmioBottomToolbar`, `GlasmioSheetTopToolbar`, `GlasmioSheetToolbarButton`, `GlasmioSheetButton` |
 | Navigation | `GlasmioNavigationBar`, `GlasmioNavigationBarWithTrailingItem`, `GlasmioTabItem`, `GlasmioNavigationScrollState`, `rememberGlasmioNavigationScrollState`, `Modifier.glasmioNavigationScrollHint` |
 | Menus | `GlasmioMenu`, `GlasmioMenuItem`, `GlasmioContextMenu`, `GlasmioCascadingMenu`, `GlasmioCascadingMenuItem`, `GlasmioPopUpButton`, `rememberGlasmioMenuAnchorState`, `Modifier.glasmioMenuAnchor` |
+| Anchored help and content | `GlasmioTooltip`, `GlasmioPopover` |
 | Alerts | `GlasmioAlertDialog`, `GlasmioAlertButtonSpec`, `GlasmioAlertButtonRole`, `GlasmioAlertButtonLayout`, `GlasmioAlertSurface`, `GlasmioAlertButton`, `GlasmioAlertFieldGroup`, `GlasmioAlertTextField` |
 | Sheets and overlays | `GlasmioBottomSheet`, `GlasmioSheetSurface`, `GlasmioActionSheet`, `GlasmioActionSheetContent`, `GlasmioModalOverlay` |
-| Pages | `GlasmioNavigationScaffold`, `GlasmioPageBody`, `GlasmioPageTitle`, `GlasmioScaffold`, `GlasmioListPage`, `GlasmioPinnedListPage`, `GlasmioPinnedPage`, `rememberGlasmioGridCollapseProgress`, `GlasmioOverscrollHost`, `Modifier.pullToRefreshRebound`, `rememberGlasmioAppBarScrollBehavior` |
+| Pages | `GlasmioNavigationScaffold`, `GlasmioPageBody`, `GlasmioPageTitle`, `GlasmioScaffold`, `GlasmioListPage`, `GlasmioPinnedListPage`, `GlasmioPinnedPage`, `rememberGlasmioGridCollapseProgress`, `GlasmioOverscrollHost`, `GlasmioPullToRefreshBox`, `Modifier.pullToRefreshRebound`, `rememberGlasmioAppBarScrollBehavior` |
 | Floating search | `GlasmioFloatingSearch`, `GlasmioFloatingSearchButton` |
 | Sheet motion | `GlasmioSheetState`, `rememberGlasmioSheetState`, `GlasmioSheetValue`; custom player containers retain `GlasmioBottomSheetState` and `GlasmioSheetDefaults` |
 | Preferences | `GlasmioPreferenceEntry`, `GlasmioSwitchPreference`, `GlasmioEditTextPreference`, `GlasmioListPreference`, `GlasmioEnumListPreference`, `GlasmioPreferenceGroupTitle` |
@@ -290,7 +291,9 @@ fun PreferencesScreen() = ExampleHost {
 
 For independently measured bars, use `GlasmioScaffold` and pass its `PaddingValues` to `GlasmioListPage(contentPadding = padding)`. The list applies and consumes that padding once. Use `GlasmioPinnedPage` with `rememberGlasmioHeaderCollapse(gridState)` when the body is a lazy grid rather than a list; `rememberGlasmioGridCollapseProgress` is the legacy name for the same breakpoint-driven value. `rememberGlasmioHeaderScrollEdge` returns the continuous progress for a top bar material that must not pulse with the collapse.
 
-The sample's Lists page switches between a lazy list and an adaptive grid while preserving each scroll state. Its toolbar refresh and pull gesture share one caller-owned callback, rotating the visible items after a short refresh. `Modifier.pullToRefreshRebound` animates only the body; the refresh indicator sits below the fixed toolbar, and both layouts apply the pinned page's content padding once.
+Wrap a vertically scrollable child in `GlasmioPullToRefreshBox`. Set `isRefreshing` to true in `onRefresh` when accepting a pull, then reset it when the work completes. The control reveals the bold `progress.indicator` glyph from the host symbol font and rotates it while the request is active. With a fixed toolbar, pass its top content inset as `indicatorPadding` and apply the page content padding to the scrollable child as usual.
+
+The sample's Lists page demonstrates the control in a lazy list and an adaptive grid. The pull gesture and toolbar button share the same refresh callback. `Modifier.pullToRefreshRebound` is available for callers that provide their own refresh indicator and want the body to return immediately after release.
 
 Preferences present values and report edits. The host chooses DataStore, database, network, or in-memory storage. Disable a row's content without dimming its separator. Set `showTopSeparator = false` on the first preference row in a group.
 
@@ -337,6 +340,26 @@ fun MenuScreen() = ExampleHost {
     }
 }
 ```
+
+## Tooltips and popovers
+
+`GlasmioTooltip` wraps an anchor and shows a brief, noninteractive hint after
+pointer hover or touch and hold. The hint can flip below its anchor to stay
+within the safe area. Touch and hold also works with a stylus.
+
+`GlasmioPopover` takes a caller-owned `visible` value, a dismissal callback,
+an anchor, and arbitrary column content. Its rounded pointer and panel share
+one outline for the shadow, highlight, and refraction. The panel uses the
+Regular glass color response with adaptive contrast and springs from the
+pointer tip. It prefers the direction with the most visible area and closes
+on outside tap or Back. In windows narrower than
+600dp or shorter than 480dp it uses the existing sheet presenter by default.
+Pass `adaptToSheet = false` to keep it anchored in compact windows.
+
+Glasmio's contour and material were informed by a native popover probe on an
+iPhone 13 mini. The `probe` and `native` notes under
+`.local-research/ios/anchored-presentations/` record the geometry, motion, and
+material observations. The touch tooltip is specific to Glasmio.
 
 ## Alerts and sheets
 
