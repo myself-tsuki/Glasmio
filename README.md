@@ -35,7 +35,7 @@ Glasmio implements these effects and interactions independently for Android; it 
 | --- | --- | --- |
 | ![Sheet opening, expanding and dismissing](docs/images/showcase/sheet-motion.gif) | ![Text selection and expanded editing toolbar](docs/images/showcase/text-toolbar.gif) | ![Liquid menu opening and closing](docs/images/showcase/menu.gif) |
 
-All six libraries share version `0.2.0` and the Maven group `io.github.neoruaa.glasmio`.
+All six libraries share version `0.2.1` and the Maven group `io.github.neoruaa.glasmio`.
 
 ## Demo app
 
