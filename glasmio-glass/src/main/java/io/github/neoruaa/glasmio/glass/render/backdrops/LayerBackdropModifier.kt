@@ -20,6 +20,8 @@ import androidx.compose.ui.node.DrawModifierNode
 import androidx.compose.ui.node.GlobalPositionAwareModifierNode
 import androidx.compose.ui.node.ModifierNodeElement
 import androidx.compose.ui.node.invalidateDraw
+import androidx.compose.ui.node.requireView
+import io.github.neoruaa.glasmio.glass.render.GlassFrameClock
 import androidx.compose.ui.platform.InspectorInfo
 import androidx.compose.ui.unit.IntOffset
 import io.github.neoruaa.glasmio.glass.render.internal.recordLayer
@@ -81,6 +83,8 @@ private class LayerBackdropNode(
 ) : DrawModifierNode, GlobalPositionAwareModifierNode, Modifier.Node() {
 
     private var registeredLayer: GraphicsLayer? = null
+    // This source's window counts as activity for capped glass in any window (a menu popup over this content).
+    private var trackedRoot: android.view.View? = null
 
     fun updateBackdrop(value: LayerBackdrop) {
         if (backdrop === value) return
@@ -109,6 +113,7 @@ private class LayerBackdropNode(
 
     override fun onAttach() {
         registerCapture()
+        trackedRoot = GlassFrameClock.track(requireView())
     }
 
     override fun ContentDrawScope.draw() {
@@ -137,6 +142,8 @@ private class LayerBackdropNode(
     }
 
     override fun onDetach() {
+        trackedRoot?.let(GlassFrameClock::untrack)
+        trackedRoot = null
         unregisterCapture()
         backdrop.clearRecordingCoordinates()
     }

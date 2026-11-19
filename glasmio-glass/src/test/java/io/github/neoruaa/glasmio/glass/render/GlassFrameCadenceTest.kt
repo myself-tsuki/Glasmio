@@ -1,48 +1,66 @@
 package io.github.neoruaa.glasmio.glass.render
 
+import io.github.neoruaa.glasmio.glass.render.GlassFrameSchedule.Companion.Never
 import org.junit.Assert.assertEquals
-import org.junit.Assert.assertFalse
-import org.junit.Assert.assertTrue
+import org.junit.Assert.assertNotEquals
 import org.junit.Test
 
 class GlassFrameCadenceTest {
     private val frame120 = 8_333_333L
 
-    @Test fun firstRenderStartsImmediately() {
-        val cadence = GlassFrameCadence()
-        assertTrue(cadence.onWindowDraw(presentOnly = false))
-        assertEquals(0L, cadence.waitNanos(0L, 30))
-    }
-
-    @Test fun rendersAt30HzWhileTheWindowDrawsAt120() {
-        val cadence = GlassFrameCadence()
-        var renders = 0
-        for (i in 0 until 120) {
+    /** Drives the schedule like GlassFrameClock: one check per 120 Hz vsync. Returns the tick count. */
+    private fun run(schedule: GlassFrameSchedule, frames: IntRange, cap: Int, active: (Int) -> Boolean): Int {
+        var ticks = 0
+        for (i in frames) {
             val now = i * frame120
-            cadence.onWindowDraw(presentOnly = false)
-            if (cadence.dirty && cadence.waitNanos(now, 30) == 0L) {
-                cadence.onRendered(now)
-                renders++
+            if (active(i)) schedule.onActivity(now)
+            val at = schedule.nextTickAt(cap)
+            if (at != Never && at <= now + 1_000_000L) {
+                schedule.onTick(now)
+                ticks++
             }
         }
-        assertEquals(30, renders)
+        return ticks
     }
 
-    @Test fun presentFramesSettleOnceThenStop() {
-        val cadence = GlassFrameCadence()
-        cadence.onWindowDraw(presentOnly = false)
-        cadence.onRendered(0L)
-        // The frame that shows the new image: one settle render, in case a change landed in that frame.
-        assertTrue(cadence.onWindowDraw(presentOnly = true))
-        cadence.onRendered(frame120 * 4)
-        // The settle render's own present must not start another render: an idle screen costs nothing.
-        assertFalse(cadence.onWindowDraw(presentOnly = true))
-        assertFalse(cadence.dirty)
+    @Test fun idleClockNeverTicks() {
+        assertEquals(Never, GlassFrameSchedule().nextTickAt(30))
     }
 
-    @Test fun uncappedNeverWaits() {
-        val cadence = GlassFrameCadence()
-        cadence.onRendered(0L)
-        assertEquals(0L, cadence.waitNanos(1L, 0))
+    @Test fun firstActivityTicksImmediately() {
+        val schedule = GlassFrameSchedule()
+        schedule.onActivity(5L)
+        assertEquals(5L, schedule.nextTickAt(30))
+    }
+
+    @Test fun rendersAt30HzWhileTheAppDrawsAt120() {
+        assertEquals(30, run(GlassFrameSchedule(), 0 until 120, 30) { true })
+    }
+
+    @Test fun keepsRenderingWhenOnlySomeFramesCountAsActivity() {
+        // The old per-surface damage guess starved here: most app frames were also glass-present frames.
+        assertEquals(30, run(GlassFrameSchedule(), 0 until 120, 30) { it % 4 == 1 })
+    }
+
+    @Test fun tailCatchesTheFinalStateThenStops() {
+        val schedule = GlassFrameSchedule()
+        run(schedule, 0 until 60, 30) { true }
+        // About 250 ms of 30 Hz glass frames after the last change, then nothing.
+        assertEquals(9, run(schedule, 60 until 240, 30) { false })
+        assertEquals(Never, schedule.nextTickAt(30))
+    }
+
+    @Test fun newActivityRestartsAStoppedClock() {
+        val schedule = GlassFrameSchedule()
+        run(schedule, 0 until 240, 30) { it == 0 }
+        assertEquals(Never, schedule.nextTickAt(30))
+        schedule.onActivity(300 * frame120)
+        assertNotEquals(Never, schedule.nextTickAt(30))
+    }
+
+    @Test fun uncappedNeverTicks() {
+        val schedule = GlassFrameSchedule()
+        schedule.onActivity(0L)
+        assertEquals(Never, schedule.nextTickAt(0))
     }
 }
