@@ -353,6 +353,8 @@ private class DrawBackdropNode(
         }
 
     private var graphicsLayer: GraphicsLayer? = null
+    // Renders this surface's filter chain off screen at the glass frame-rate cap; null = live rendering.
+    private var frameCache: GlassFrameCache? = null
     private var atlasPasses: NativeGlassAtlasPasses? = null
     private var atlasProducerLayer: GraphicsLayer? = null
     private var atlasBackingLayer: GraphicsLayer? = null
@@ -558,7 +560,8 @@ private class DrawBackdropNode(
                 if (scale != 1f) canvas.scale(1f / scale, 1f / scale)
                 if (padding != 0f) canvas.translate(-padding, -padding)
             }
-            drawLayer(layer)
+            val cache = frameCache
+            if (cache != null) cache.draw(this, layer) else drawLayer(layer)
         } finally {
             canvas.restore()
         }
@@ -670,6 +673,12 @@ private class DrawBackdropNode(
         effectScope.nativeGlassHeadroom = headroom
         GlasmioPerformance.ensureDetected(requireView().context)
         val geometryChanged = effectScope.update(this, GlasmioPerformance.sampling(samplingScale(size, this)))
+        // Glass-only cap: the window keeps the panel rate, this surface's chain runs at most frameRateCap times a second.
+        val view = requireView()
+        if (!luminanceOnly && exportedBackdrop == null &&
+            GlassFrameCache.applies(view, effectScope.nativeGlassHardwareRendering, managed, headroom)) {
+            if (frameCache == null) frameCache = GlassFrameCache(view, coroutineScope) { if (isAttached) invalidateDraw() }
+        } else releaseFrameCache()
         if (effectsDirty || geometryChanged || colorSpaceChanged || headroomChanged) {
             observeEffects()
             effectsDirty = false
@@ -1038,7 +1047,13 @@ private class DrawBackdropNode(
         effectsDirty = true
     }
 
+    private fun releaseFrameCache() {
+        frameCache?.release()
+        frameCache = null
+    }
+
     override fun onDetach() {
+        releaseFrameCache()
         sourceObservation?.invoke()
         sourceObservation = null
         luminanceGeneration++

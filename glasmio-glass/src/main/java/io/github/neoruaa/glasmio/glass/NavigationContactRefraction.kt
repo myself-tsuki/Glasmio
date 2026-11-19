@@ -113,8 +113,11 @@ internal fun BackdropEffectScope.navigationContainerLens(
     val scale = shape.outlineScale
     val distanceScale = minOf(scale.x, scale.y)
     if (distanceScale <= 0f) return
+    // The field and optical center are in full-size pixels; this scope's lens heights are in effect pixels.
+    val sampleScale = (this as? io.github.neoruaa.glasmio.glass.render.BackdropEffectScopeImpl)?.samplingScale
+        ?.takeIf { it.isFinite() && it > 0f } ?: 1f
     val field = navigationContainerGlassField(shape, opticalCenter,
-        maxOf(refractionHeight, outerRefractionHeight) / distanceScale)
+        maxOf(refractionHeight, outerRefractionHeight) / distanceScale / sampleScale).atSamplingScale(sampleScale)
     val native = shape.nativeUnion != null
     val functions = field.shaderFunctions + (if (native) "\nuniform float2 opticalCenter;\n" else "")
     runtimeShaderEffect(if (native) "NativeNavigationContainerLens" else "NavigationContainerLens",
@@ -123,6 +126,7 @@ internal fun BackdropEffectScope.navigationContainerLens(
         setFloatUniform("offset", -padding, -padding)
         field.configure(asAndroidRuntimeShader())
         if (native) setFloatUniform("opticalCenter", opticalCenter.x, opticalCenter.y)
+        setFloatUniform("opticalCenterScale", sampleScale)
         setFloatUniform("refractionHeight", refractionHeight)
         setFloatUniform("refractionAmount", -refractionAmount)
         setFloatUniform("outerHeight", outerRefractionHeight.coerceAtLeast(0f))
@@ -144,6 +148,7 @@ uniform float outerAmount;
 uniform float refractionOpacity;
 uniform float refractionEdgeWidth;
 uniform float chromatic;
+uniform float opticalCenterScale;
 
 float2 safeNormal(float2 v) {
     return v / max(length(v), 0.0001);
@@ -157,7 +162,7 @@ half4 main(float2 coord) {
     float distance = field.x;
     if (distance > 0.0 || -distance >= max(refractionHeight, outerHeight)) return content.eval(coord);
     float d = nativeGlassDisplacement(distance, 1.0 / refractionHeight, refractionAmount);
-    float2 depth = point - opticalCenter;
+    float2 depth = point - opticalCenter * opticalCenterScale;
     float2 gradient = field.yz;
     float2 refracted = coord + d * gradient;
     half4 result = nativeGlassSample(refracted, 0.0);

@@ -323,7 +323,8 @@ fun GlasmioContextMenu(
             // creates a bounded layer even with Unbounded edge treatment, so it must stay
             // outside the spring-sized menu to avoid exposing a menu-sized rectangle.
             .blur(
-                if (morphMotion == null) (8.dp * (1f - progress)).coerceAtLeast(0.dp) else 0.dp,
+                // The entrance blur re-renders the whole overshoot host every frame; skip it in simple mode.
+                if (morphMotion == null && !GlasmioPerformance.simpleMenus) (8.dp * (1f - progress)).coerceAtLeast(0.dp) else 0.dp,
                 BlurredEdgeTreatment.Unbounded,
             )
             .graphicsLayer {
@@ -474,7 +475,9 @@ fun GlasmioMenu(
     val hostView = LocalView.current
     val density = LocalDensity.current
     val liquidMotion = remember { LiquidMenuMorphMotion() }
-    val usesAnchorMorph = morphFromAnchor
+    // Efficient/Minimal tiers (or simpleMenus = true) open with a plain scale+fade: no source
+    // capture, no liquid field or contour shader. Read at open time; an open menu keeps its path.
+    val usesAnchorMorph = morphFromAnchor && !GlasmioPerformance.simpleMenus
     var windowScreenOffset by remember { mutableStateOf(Offset.Zero) }
     DisposableEffect(sourceAnchor) { onDispose { sourceAnchor.release() } }
     var morphSourceBounds by remember { mutableStateOf<Rect?>(null) }

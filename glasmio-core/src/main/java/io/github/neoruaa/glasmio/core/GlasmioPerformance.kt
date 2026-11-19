@@ -25,15 +25,17 @@ enum class GlasmioPerformanceTier(
     val luminanceProbeIntervalMs: Long,
     val refraction: Boolean,
     val backdrop: Boolean,
+    /** Menus open with a plain scale+fade instead of the liquid morph from the anchor (no source capture, field or contour shader). */
+    val simpleMenus: Boolean = false,
 ) {
     /** Original quality: flagship SoCs. */
     Full(1f, 1f, 0, 33L, refraction = true, backdrop = true),
     /** Snapdragon 8 Gen 1/2 class and 8 GB flagships: full optics, lighter sampling. */
     Balanced(.75f, 1f, 60, 50L, refraction = true, backdrop = true),
     /** Snapdragon 865/888, Exynos 1200/1280, Dimensity 700–900, Snapdragon 7-series: blurred glass without lens passes. */
-    Efficient(.5f, 1.5f, 60, 100L, refraction = false, backdrop = true),
+    Efficient(.5f, 1.5f, 60, 100L, refraction = false, backdrop = true, simpleMenus = true),
     /** Low-RAM or very old devices: flat translucent material, no backdrop capture. */
-    Minimal(.35f, 2f, 30, 250L, refraction = false, backdrop = false),
+    Minimal(.35f, 2f, 30, 250L, refraction = false, backdrop = false, simpleMenus = true),
 }
 
 /**
@@ -50,6 +52,8 @@ data class GlasmioPerformanceConfig(
     val refraction: Boolean? = null,
     /** Force backdrop sampling on/off; null follows the tier. */
     val backdrop: Boolean? = null,
+    /** Force the simple scale+fade menu animation on/off; null follows the tier. */
+    val simpleMenus: Boolean? = null,
 )
 
 /**
@@ -80,12 +84,12 @@ object GlasmioPerformance {
     /** Effective glass update rate in Hz; 0 means uncapped. */
     val frameRateCap: Int get() = state.frameRateCap ?: tier.frameRateCap
 
-    /** Applies the tier or explicit downscale to a surface's own [base] backdrop scale; full-size (1) surfaces stay 1. */
+    /**
+     * Applies the tier or explicit downscale to a surface's own [base] backdrop scale, full-size (1) surfaces
+     * included. Contact, toolbar and union shape fields are mapped into the reduced effect space by the renderer,
+     * so the navigation bar and pills downscale like every other surface.
+     */
     fun sampling(base: Float): Float {
-        // A base of 1 means the surface (navigation bar, pills, contact/toolbar shapes, union shapes) renders its
-        // optics at exact full-size geometry and does not support a downscaled source; scaling it shrinks the
-        // capture while the shape stays full size, so the glass appears oversized and cropped.
-        if (base >= 1f) return base
         val multiplier = state.samplingScale ?: tier.samplingMultiplier
         return if (multiplier >= 1f) base else (base * multiplier).coerceAtLeast(MinimumSamplingScale)
     }
@@ -103,6 +107,9 @@ object GlasmioPerformance {
             reduceTransparency = appearance.reduceTransparency || !backdrop,
         )
     }
+
+    /** Whether menus use the plain scale+fade opening instead of the liquid morph. Snapshot-observed. */
+    val simpleMenus: Boolean get() = state.simpleMenus ?: tier.simpleMenus
 
     fun fieldStep(base: Float): Float = base * tier.fieldStepMultiplier
 
