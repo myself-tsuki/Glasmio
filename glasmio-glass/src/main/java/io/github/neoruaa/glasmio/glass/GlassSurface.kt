@@ -775,7 +775,9 @@ internal fun Modifier.navigationGlassBackgroundResolved(
             if (sampleBackdrop && appearance.usesBackdrop) {
                 val storage = this as? io.github.neoruaa.glasmio.glass.render.BackdropEffectScopeImpl
                 val surfaceShape = shape()
-                val extent = ((surfaceShape as? NavigationGlassUnionShape)?.minimumDimension ?: size.minDimension) / density
+                val outlineShape = surfaceShape as? NavigationGlassOutlineShape
+                val extent = outlineShape?.bodyDimension(size, this)
+                    ?: ((surfaceShape as? NavigationGlassUnionShape)?.minimumDimension ?: size.minDimension) / density
                 val geometry = if (cachedGeometry == null || geometryExtent != extent) {
                     navigationGlassGeometryProfile(extent, material).also { cachedGeometry = it; geometryExtent = extent }
                 } else requireNotNull(cachedGeometry)
@@ -788,7 +790,7 @@ internal fun Modifier.navigationGlassBackgroundResolved(
                     NativeGlassPressGlow(sampledPressHighlight?.invoke(storage.fullSize))
                 } else null
                 val completion = nativeRecipe?.let { recipe ->
-                    NativeGlassCompletion(recipe, isDark,
+                    NativeGlassCompletion(if (outlineShape == null) recipe else recipe.forMinimumDimension(extent), isDark,
                         if (material == NavigationGlassMaterial.Clear) 1f else 0f,
                         materialAlpha = materialPaintAlpha, edgeAlpha = innerShadowAlpha,
                         shadow = if (dropShadow == null) navigationNativeShadowProfile(extent, shadowMaterial) else null,
@@ -797,11 +799,16 @@ internal fun Modifier.navigationGlassBackgroundResolved(
                 }
                 val completionBand = completion?.shadow?.let { (it.radius * 2f + 8f) * density + 2f } ?: 0f
                 val nativeField = if (isRuntimeShaderSupported() && (nativeOptics || completion != null)) when (surfaceShape) {
+                    // Contact, toolbar and union fields are built in full-size pixels: map them into effect space.
                     is LiquidContactShape -> navigationContainerGlassField(surfaceShape, opticalCenter?.invoke(), completionBand)
+                        .atSamplingScale(storage?.samplingScale ?: 1f)
                     is ToolbarActionShape -> navigationToolbarGlassField(surfaceShape, completionBand)
-                    is NavigationGlassUnionShape -> surfaceShape.nativeField()
+                        .atSamplingScale(storage?.samplingScale ?: 1f)
+                    is NavigationGlassUnionShape -> surfaceShape.nativeField().atSamplingScale(storage?.samplingScale ?: 1f)
+                    // The outline field is rasterized from this scope's size and density, already in effect space.
+                    is NavigationGlassOutlineShape -> surfaceShape.nativeField(size, layoutDirection, this, completionBand)
                     else -> null
-                }?.atSamplingScale(storage?.samplingScale ?: 1f) else null
+                } else null
                 if (nativeOptics) {
                     nativeNavigationGlassFilter(
                         geometry, isDark,
