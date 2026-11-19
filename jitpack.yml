@@ -1,5 +1,5 @@
 # Lets anyone consume a tag straight from GitHub, with no Maven Central account:
-#   maven("https://jitpack.io"); implementation("com.github.myself-tsuki.Glasmio:glasmio-ui:v0.2.0")
+#   maven("https://jitpack.io"); implementation("com.github.myself-tsuki.Glasmio:glasmio-ui:v0.2.1")
 jdk:
   - openjdk21
 before_install:

@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.2.1
 
 - Fix navigation bar and pill surfaces rendering oversized/cropped on non-Full performance tiers: the tier downscale no longer applies to surfaces that sample at full size (contact, toolbar and union shapes).
 

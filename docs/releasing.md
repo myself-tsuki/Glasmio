@@ -44,17 +44,17 @@ After publication, run `python3 scripts/verify_consumer.py --central` to build a
 
 No Maven account is needed. `publishToMavenLocal` builds all six libraries (including the native code) and works without signing keys.
 
-**JitPack (any app, any machine).** Create a GitHub release with tag `v0.2.0`, then open `https://jitpack.io/#myself-tsuki/Glasmio` and press Get it once to build it. `jitpack.yml` installs SDK 37, NDK 27.1 and CMake. In your app:
+**JitPack (any app, any machine).** Create a GitHub release with tag `v0.2.1`, then open `https://jitpack.io/#myself-tsuki/Glasmio` and press Get it once to build it. `jitpack.yml` installs SDK 37, NDK 27.1 and CMake. In your app:
 
 ```kotlin
 // settings.gradle.kts
 dependencyResolutionManagement { repositories { google(); mavenCentral(); maven("https://jitpack.io") } }
 // app/build.gradle.kts
-implementation("com.github.myself-tsuki.Glasmio:glasmio-ui:v0.2.0")
-implementation("com.github.myself-tsuki.Glasmio:glasmio-scaffold:v0.2.0")
+implementation("com.github.myself-tsuki.Glasmio:glasmio-ui:v0.2.1")
+implementation("com.github.myself-tsuki.Glasmio:glasmio-scaffold:v0.2.1")
 ```
 
-**Local only.** `./gradlew publishToMavenLocal`, add `mavenLocal()` to your repositories and use `io.github.neoruaa.glasmio:glasmio-ui:0.2.0`.
+**Local only.** `./gradlew publishToMavenLocal`, add `mavenLocal()` to your repositories and use `io.github.neoruaa.glasmio:glasmio-ui:0.2.1`.
 
 **Source include.** Add this repo as a git submodule and `includeBuild("Glasmio")` in your `settings.gradle.kts`.
 
