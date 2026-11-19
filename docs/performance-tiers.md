@@ -33,7 +33,7 @@ The weaker of the SoC and RAM verdicts wins. Detection reads `Build.SOC_MANUFACT
 
 ## Simple menu animation
 
-`simpleMenus` (on for `Efficient` and `Minimal`, off for `Full` and `Balanced`) makes `GlasmioMenu` and the cascading/pop-up menus open with the plain scale + fade spring instead of the liquid morph from the anchor. It skips the source capture, the CPU/FP16 field, the contour shader and the entrance blur on the popup host. Force it with `GlasmioPerformanceConfig(simpleMenus = true/false)`. It is read when a menu opens; an already open menu keeps its path.
+`GlasmioPerformanceConfig(simpleMenus = true)` makes `GlasmioMenu` and the cascading/pop-up menus open with the plain scale + fade spring instead of the liquid morph from the anchor. It skips the source capture, the CPU/FP16 field, the contour shader and the entrance blur on the popup host. It is off by default on every tier, including `Efficient` and `Minimal`, so menus keep the original morph unless the app opts in. It is read when a menu opens; an already open menu keeps its path.
 
 ## What each knob changes
 

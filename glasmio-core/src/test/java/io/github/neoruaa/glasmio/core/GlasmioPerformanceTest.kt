@@ -79,4 +79,14 @@ class GlasmioPerformanceTest {
         assertTrue((0 until 10).all { open.accept(it * 8_333_333L) })
         assertFalse(GlasmioFrameGate().also { GlasmioPerformance.config = GlasmioPerformanceConfig(frameRateCap = 30) }.run { accept(0); accept(1_000_000) })
     }
+
+    @Test fun menusKeepTheLiquidMorphUnlessTheAppOptsIn() {
+        // No tier switches to the simple menu opening by itself, including the 865's Efficient tier.
+        for (tier in GlasmioPerformanceTier.entries) {
+            GlasmioPerformance.config = GlasmioPerformanceConfig(tier = tier, frameRateCap = 30, samplingScale = .5f)
+            assertFalse(tier.name, GlasmioPerformance.simpleMenus)
+        }
+        GlasmioPerformance.config = GlasmioPerformanceConfig(tier = GlasmioPerformanceTier.Efficient, simpleMenus = true)
+        assertTrue(GlasmioPerformance.simpleMenus)
+    }
 }
