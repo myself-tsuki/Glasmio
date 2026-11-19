@@ -9,6 +9,7 @@ import android.hardware.HardwareBuffer
 import android.media.Image
 import android.media.ImageReader
 import android.os.Handler
+import android.os.HandlerThread
 import android.os.Looper
 import android.view.Choreographer
 import android.view.View
@@ -199,7 +200,8 @@ internal class RunOnce(private val action: () -> Unit) : Runnable {
  *
  * The off-screen renderer shares the process RenderThread and GPU context with the window, so it sees the same
  * live render nodes; it only runs them less often. Two images stay open (the one shown and the one before it), so a
- * buffer is reused only after the window has drawn a newer one. See [GlassFrameRendererLifetime] for why the
+ * buffer is reused only after the window has drawn a newer one. Finished images leave their queue on
+ * [GlassFrameImageThread], never on the main thread, so the RenderThread can always get a free buffer. See [GlassFrameRendererLifetime] for why the
  * renderer is never destroyed while the glass layer may still need it.
  */
 internal class GlassFrameCache(
@@ -210,7 +212,8 @@ internal class GlassFrameCache(
     private val handler = Handler(Looper.getMainLooper())
     private val node = RenderNode("GlasmioGlassFrame")
     private var renderer: HardwareRenderer? = null
-    private var reader: ImageReader? = null
+    // Read on the image thread, so the reader that is current and the released flag are volatile.
+    @Volatile private var reader: ImageReader? = null
     private var surfaceSize = IntSize.Zero
     private var source: GraphicsLayer? = null
     private var sourceSize = IntSize.Zero
@@ -220,7 +223,16 @@ internal class GlassFrameCache(
     private var shownSize = IntSize.Zero
     private var retired: Image? = null
     private val staleReaders = ArrayList<ImageReader>(2)
-    private var released = false
+    @Volatile private var released = false
+
+    // Hand-off from the image thread to the main thread, guarded by [lock]. [incoming] was never shown, so the image
+    // thread may close it when a newer image arrives.
+    private val lock = Any()
+    private var incoming: Image? = null
+    private var incomingBitmap: ImageBitmap? = null
+    private var incomingSize = IntSize.Zero
+    private var promotePosted = false
+    private val promote = Runnable { promoteIncoming() }
 
     init {
         GlassFrameClock.add(this)
@@ -271,8 +283,9 @@ internal class GlassFrameCache(
             renderer.createRenderRequest().setWaitForPresent(false).syncAndDraw()
         } catch (_: RuntimeException) {
             // The output surface was lost between frames. Keep the renderer (destroying it would delete the glass
-            // layer's display lists); the next glass frame gives it a new surface.
-            retireReader()
+            // layer's display lists); the next glass frame gives it a new surface and only then retires this reader,
+            // so a reader is never closed while the renderer still draws into it.
+            surfaceSize = IntSize.Zero
         }
     }
 
@@ -284,7 +297,10 @@ internal class GlassFrameCache(
         val reader = ImageReader.newInstance(size.width, size.height, PixelFormat.RGBA_8888, MaxImages,
             HardwareBuffer.USAGE_GPU_SAMPLED_IMAGE or HardwareBuffer.USAGE_GPU_COLOR_OUTPUT)
         val imageSize = size
-        reader.setOnImageAvailableListener({ onImage(it, imageSize) }, handler)
+        // Images leave the queue on their own thread, never the main thread: the RenderThread waits for a free buffer
+        // while it draws glass, and the main thread waits for the RenderThread, so a buffer the main thread had to
+        // free could never be freed (input-dispatch ANR).
+        reader.setOnImageAvailableListener({ onImage(it, imageSize) }, GlassFrameImageThread.handler)
         // A resize swaps only the output surface: the renderer and its root display list stay alive.
         retireReader()
         val target = current ?: HardwareRenderer().apply {
@@ -304,8 +320,11 @@ internal class GlassFrameCache(
         shownSize = IntSize.Zero
         retired?.close(); retired = null
         shown?.close(); shown = null
-        reader?.let { staleReaders += it }
-        reader = null
+        synchronized(lock) {
+            reader?.let { staleReaders += it }
+            reader = null
+            incoming?.close(); incoming = null; incomingBitmap = null
+        }
         surfaceSize = IntSize.Zero
     }
 
@@ -315,17 +334,48 @@ internal class GlassFrameCache(
         staleReaders.clear()
     }
 
+    /** Image thread. Always takes the image off the queue, so the RenderThread never waits on the main thread. */
     private fun onImage(reader: ImageReader, size: IntSize) {
-        if (released || reader !== this.reader) return
         val image = try { reader.acquireLatestImage() } catch (_: IllegalStateException) { null } ?: return
+        if (released || reader !== this.reader) { image.close(); return }
         val buffer = image.hardwareBuffer
-        val bitmap = buffer?.let { Bitmap.wrapHardwareBuffer(it, ColorSpace.get(ColorSpace.Named.SRGB)) }
-        buffer?.close()
+        val bitmap = try {
+            buffer?.let { Bitmap.wrapHardwareBuffer(it, ColorSpace.get(ColorSpace.Named.SRGB)) }
+        } finally {
+            buffer?.close()
+        }
         if (bitmap == null) { image.close(); return }
+        val post: Boolean
+        synchronized(lock) {
+            if (released || reader !== this.reader) { image.close(); return }
+            incoming?.close()
+            incoming = image
+            incomingBitmap = bitmap.asImageBitmap()
+            incomingSize = size
+            post = !promotePosted
+            promotePosted = true
+        }
+        if (post) handler.post(promote)
+    }
+
+    /** Main thread: shows the newest finished image and keeps the one before it open until the window draws again. */
+    private fun promoteIncoming() {
+        val image: Image
+        val bitmap: ImageBitmap
+        val size: IntSize
+        synchronized(lock) {
+            promotePosted = false
+            image = incoming ?: return
+            bitmap = incomingBitmap ?: run { image.close(); incoming = null; return }
+            size = incomingSize
+            incoming = null
+            incomingBitmap = null
+        }
+        if (released) { image.close(); return }
         retired?.close()
         retired = shown
         shown = image
-        shownBitmap = bitmap.asImageBitmap()
+        shownBitmap = bitmap
         shownSize = size
         GlassFrameClock.presented(root)
         requestPresent()
@@ -339,6 +389,7 @@ internal class GlassFrameCache(
     fun release() {
         if (released) return
         released = true
+        handler.removeCallbacks(promote)
         GlassFrameClock.remove(this)
         GlassFrameClock.untrack(root)
         source = null
@@ -368,5 +419,14 @@ internal class GlassFrameCache(
             val refresh = view.display?.refreshRate ?: return false
             return cap < refresh - 1f
         }
+    }
+}
+
+/** One process-wide thread that takes finished glass images off their queues, independent of the main thread. */
+private object GlassFrameImageThread {
+    val handler: Handler by lazy {
+        val thread = HandlerThread("GlasmioGlassFrames")
+        thread.start()
+        Handler(thread.looper)
     }
 }

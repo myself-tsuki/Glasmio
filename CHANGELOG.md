@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- Fix an "Input dispatching timed out" ANR with `frameRateCap` set, typically when a menu opens. The capped-glass renderer draws into a 4-buffer queue, and buffers were only taken off that queue on the main thread. The RenderThread waited for a free buffer while drawing glass, the main thread waited for the RenderThread, and neither could continue. Finished glass images are now taken off the queue on their own thread (`GlasmioGlassFrames`). The main thread only swaps in the newest image, so the RenderThread never waits on it.
 - Fix the app crashing when a menu opens with `frameRateCap` set (0.2.2/0.2.3), and the backdrop going stale or blank with the cap on. While the window shows the cached glass image, the off-screen renderer is the only parent of the glass layer's render node. The cache destroyed that renderer on every size change (a menu resizes several times while it opens) and right after handing the layer back to the window. That dropped the node's last parent, and Android's renderer then deleted the glass layer's display lists while Compose still used them. Each cache now keeps one renderer for its whole life, a resize only swaps its output surface, and the renderer is destroyed only after the window has committed a frame that draws the glass layer itself.
 
 ## 0.2.3
