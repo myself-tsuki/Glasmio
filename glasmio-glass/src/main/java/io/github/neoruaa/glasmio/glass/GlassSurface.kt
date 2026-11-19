@@ -801,7 +801,7 @@ internal fun Modifier.navigationGlassBackgroundResolved(
                     is ToolbarActionShape -> navigationToolbarGlassField(surfaceShape, completionBand)
                     is NavigationGlassUnionShape -> surfaceShape.nativeField()
                     else -> null
-                } else null
+                }?.atSamplingScale(storage?.samplingScale ?: 1f) else null
                 if (nativeOptics) {
                     nativeNavigationGlassFilter(
                         geometry, isDark,

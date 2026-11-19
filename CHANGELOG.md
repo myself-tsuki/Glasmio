@@ -1,5 +1,11 @@
 # Changelog
 
+## Unreleased
+
+- `frameRateCap` now caps glass rendering itself: each glass surface renders its capture and filter chain off screen at the cap and the window composites the last image at the panel rate (`GlassFrameCache`). The rest of the app is not capped.
+- Downscale full-size glass surfaces (navigation bar, pills, contact/toolbar/union shapes) properly: their shape fields and optical center are mapped into the reduced effect space, which fixes the oversized/cropped glass at the root. `GlasmioPerformance.sampling()` no longer exempts base-1 surfaces.
+- `simpleMenus` (on for Efficient and Minimal): menus open with a plain scale and fade instead of the liquid morph and entrance blur.
+
 ## 0.2.1
 
 - Fix navigation bar and pill surfaces rendering oversized/cropped on non-Full performance tiers: the tier downscale no longer applies to surfaces that sample at full size (contact, toolbar and union shapes).

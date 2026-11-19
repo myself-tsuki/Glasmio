@@ -31,10 +31,17 @@ GlasmioPerformance.config = GlasmioPerformanceConfig(
 
 The weaker of the SoC and RAM verdicts wins. Detection reads `Build.SOC_MANUFACTURER`/`SOC_MODEL`/`HARDWARE` (SDK 31+), total RAM and `isLowRamDevice`. Unknown SoCs fall back to RAM alone. Set `tier` explicitly to override.
 
+## Simple menu animation
+
+`simpleMenus` (on for `Efficient` and `Minimal`, off for `Full` and `Balanced`) makes `GlasmioMenu` and the cascading/pop-up menus open with the plain scale + fade spring instead of the liquid morph from the anchor. It skips the source capture, the CPU/FP16 field, the contour shader and the entrance blur on the popup host. Force it with `GlasmioPerformanceConfig(simpleMenus = true/false)`. It is read when a menu opens; an already open menu keeps its path.
+
 ## What each knob changes
 
-- **Backdrop downscale (`samplingScale`)** multiplies each surface's own effect-texture scale (floor 0.25×). Surfaces that already sample at 0.25–0.5× (buttons, tab bars, toolbars) are unaffected at the floor; full-resolution surfaces (menus, sheets, sidebars, backdrop blur) get cheaper. Text, shape clips, highlights and shadows stay at device resolution. Where the control field plane needs unit scale, the renderer uses its analytic path, as it already did for any scale other than 1.
-- **Frame-rate cap (`frameRateCap`)** gates Glasmio's own animation clocks (navigation scaffold, adaptive navigation/sidebar, menu morph, loupe follow/spring, reaction bar). Skipped frames do no work: no state write, no recomposition, no shader uniform update. The clocks integrate real elapsed time, so motion speed is unchanged and the display keeps its high refresh rate; only the glass update cadence drops. On a 120 Hz panel a 60 Hz cap updates every 2nd frame, 30 Hz every 4th. Compose's own animations and scrolling are not capped. Prefer divisors of the panel rate (30/40/60 on 120 Hz, 30 on 60 Hz).
+- **Backdrop downscale (`samplingScale`)** multiplies each surface's own effect-texture scale (floor 0.25×). Surfaces that already sample at 0.25–0.5× (buttons, tab bars, toolbars) are unaffected at the floor; full-resolution surfaces (navigation bar, pills, contact/toolbar/union shapes, menus, sheets, sidebars, backdrop blur) get cheaper. Shape fields (contact, toolbar, union) are evaluated in full-size pixels and mapped into the reduced effect space (`NativeGlassFilterField.atSamplingScale`), and the optical center is scaled with them, so downscaled glass keeps its size and position. Text, shape clips, highlights and shadows stay at device resolution. Where the control field plane needs unit scale, the renderer uses its analytic path, as it already did for any scale other than 1.
+- **Frame-rate cap (`frameRateCap`)** applies to the glass only; the window keeps drawing at the panel rate.
+  - **Glass rendering:** each backdrop surface renders its capture and filter chain (blur, lens, refraction) off screen (`GlassFrameCache`: its own `HardwareRenderer` into a hardware-buffer `ImageReader`) at most `frameRateCap` times a second. Every window frame in between composites the last image as a plain bitmap, so scrolling, text and the rest of the app stay at 120 Hz while the expensive glass work runs at 30 Hz. An idle screen does no glass work at all. Surfaces that export a backdrop, luminance-only probes, software-drawn views, wide-gamut (color-managed) windows and HDR headroom skip the cache and render live. A cap at or above the panel rate also renders live.
+  - **Glass animation clocks:** Glasmio's own animation clocks (navigation scaffold, adaptive navigation/sidebar, menu morph, loupe follow/spring, reaction bar) skip frames too. They integrate real elapsed time, so motion speed is unchanged.
+  - Prefer divisors of the panel rate (30/40/60 on 120 Hz, 30 on 60 Hz).
 - **Field grid step** coarsens the CPU/FP16 liquid-menu field (4× fewer texels at 2×), which shrinks the per-update Bitmap allocation, native build and GPU upload. It takes effect at the next geometry update.
 - **Luminance probe interval** spaces the GPU→CPU backdrop read-back that adaptive label colors use.
 
@@ -126,7 +133,7 @@ Persist the choice yourself (DataStore or SharedPreferences) and restore it with
 ### 6. Behavior notes
 
 - Changing `config` at runtime re-renders glass surfaces immediately, except the liquid-menu field step, which applies at the next geometry change.
-- `frameRateCap` only gates Glasmio's own animation clocks. Compose scrolling, `animate*AsState` and your own animations are not capped. Use divisors of the panel rate (30/40/60 on 120 Hz; 30 on 60 Hz) to avoid uneven cadence.
+- `frameRateCap` caps glass rendering and Glasmio's glass clocks only. Compose scrolling, `animate*AsState` and your own animations keep the panel rate; glass content behind them updates at the cap, so it can trail a fast scroll by up to one glass frame. Use divisors of the panel rate (30/40/60 on 120 Hz; 30 on 60 Hz) to avoid uneven cadence.
 - `refraction = false` is the same appearance as `GlassAppearance(liquidGlassEnabled = false)`; `backdrop = false` is the same as `reduceTransparency = true`. The host's own `GlassAppearance` is still respected: a tier can only turn effects off, never on.
 - The tier is applied inside `GlasmioTheme`. If you provide `LocalGlassAppearance` yourself outside `GlasmioTheme`, pass it through `GlasmioPerformance.adjust(appearance)`.
 - `samplingScale` has a floor of 0.25; most small controls already sample at 0.25–0.5, so it mainly affects menus, sheets, sidebars and full-resolution backdrops.

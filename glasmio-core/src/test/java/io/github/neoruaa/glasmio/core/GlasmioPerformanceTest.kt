@@ -55,10 +55,11 @@ class GlasmioPerformanceTest {
         GlasmioPerformance.config = GlasmioPerformanceConfig(GlasmioPerformanceTier.Full, frameRateCap = 30, samplingScale = .1f)
         assertEquals(30, GlasmioPerformance.frameRateCap)
         assertEquals(.25f, GlasmioPerformance.sampling(.5f), 0f)
-        assertEquals(1f, GlasmioPerformance.sampling(1f), 0f)
+        assertEquals(.25f, GlasmioPerformance.sampling(1f), 0f)
         GlasmioPerformance.config = GlasmioPerformanceConfig(GlasmioPerformanceTier.Efficient, samplingScale = .6f)
         assertEquals(.3f, GlasmioPerformance.sampling(.5f), 1e-6f)
-        assertEquals(1f, GlasmioPerformance.sampling(1f), 0f)
+        // Full-size surfaces (navigation bar, pills) downscale too; their fields are rescaled by the renderer.
+        assertEquals(.6f, GlasmioPerformance.sampling(1f), 1e-6f)
     }
 
     @Test fun gateHalvesA60HzClockAt30() {

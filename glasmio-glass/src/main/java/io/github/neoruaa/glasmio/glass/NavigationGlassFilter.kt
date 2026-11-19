@@ -50,6 +50,47 @@ float3 navigationGlassOpticalFieldFromShape(float2 point, float3 rawShapeField) 
     return result
 }
 
+private val NativeGlassFieldEntryPoints =
+    Regex("\\bnavigationGlass(ShapeField|Field|ShadowDistance|OpticalFieldFromShape)\\b")
+
+/**
+ * Contact, toolbar and union fields are built from the shape's full-size device-pixel geometry, while every
+ * consumer evaluates them in effect (texture) pixels. At sampling scale 1 the two spaces are the same; below 1 the
+ * consumer's points are [scale] times smaller, so the unscaled field reads as a shape 1/[scale] times larger
+ * (oversized and cropped). This maps the effect-space point back to full size and the returned distance back to
+ * effect pixels. Normals are unchanged by a uniform scale. At scale 1 the field is returned untouched.
+ */
+internal fun NativeGlassFilterField.atSamplingScale(scale: Float): NativeGlassFilterField {
+    if (!scale.isFinite() || scale <= 0f || scale == 1f) return this
+    val fullSize = nativeGlassCompletionFieldFunctions(shaderFunctions)
+        .replace(NativeGlassFieldEntryPoints) { "glasmioFullSize_" + it.value }
+    val original = configure
+    return NativeGlassFilterField(fullSize + NativeGlassScaledFieldEntryPoints) { shader ->
+        original(shader)
+        shader.setFloatUniform("glasmioFieldSampleScale", scale)
+    }
+}
+
+private const val NativeGlassScaledFieldEntryPoints = """
+uniform float glasmioFieldSampleScale;
+float3 navigationGlassShapeField(float2 point) {
+    float3 f = glasmioFullSize_navigationGlassShapeField(point / glasmioFieldSampleScale);
+    return float3(f.x * glasmioFieldSampleScale, f.yz);
+}
+float3 navigationGlassField(float2 point) {
+    float3 f = glasmioFullSize_navigationGlassField(point / glasmioFieldSampleScale);
+    return float3(f.x * glasmioFieldSampleScale, f.yz);
+}
+float navigationGlassShadowDistance(float2 point) {
+    return glasmioFullSize_navigationGlassShadowDistance(point / glasmioFieldSampleScale) * glasmioFieldSampleScale;
+}
+float3 navigationGlassOpticalFieldFromShape(float2 point, float3 rawShapeField) {
+    float3 f = glasmioFullSize_navigationGlassOpticalFieldFromShape(point / glasmioFieldSampleScale,
+        float3(rawShapeField.x / glasmioFieldSampleScale, rawShapeField.yz));
+    return float3(f.x * glasmioFieldSampleScale, f.yz);
+}
+"""
+
 internal const val DefaultNativeGlassAtlas = true
 internal const val NativeGlassAtlasBackingCopy = false
 
