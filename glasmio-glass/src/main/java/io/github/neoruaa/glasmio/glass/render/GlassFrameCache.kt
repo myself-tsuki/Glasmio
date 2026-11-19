@@ -9,6 +9,7 @@ import android.hardware.HardwareBuffer
 import android.media.Image
 import android.media.ImageReader
 import android.os.Handler
+import android.os.HandlerThread
 import android.os.Looper
 import android.view.Choreographer
 import android.view.View
@@ -155,6 +156,43 @@ internal object GlassFrameClock : Choreographer.FrameCallback {
 }
 
 /**
+ * Lifetime rules for the cache's off-screen renderer. Pure, so they can be unit tested.
+ *
+ * While the window shows the cached image, the off-screen renderer's tree is the only parent of the glass layer's
+ * render node. HWUI counts parents per node, not per renderer: destroying the renderer (or discarding its root
+ * display list) drops that last parent, and HWUI then deletes the glass layer's display list and those of its capture
+ * layers while Compose still treats them as recorded. 0.2.2/0.2.3 destroyed the renderer on every size change (a
+ * menu resizes several times while it opens) and right after handing the layer back to the window, which left a
+ * stale or empty backdrop and could crash the app. So a renderer lives as long as its cache, a resize only swaps its
+ * output surface, and destruction waits until the window has committed a frame that draws the layer itself.
+ */
+internal object GlassFrameRendererLifetime {
+    enum class SurfaceAction { Keep, Create, Swap }
+
+    fun surfaceAction(hasRenderer: Boolean, surfaceWidth: Int, surfaceHeight: Int, width: Int, height: Int): SurfaceAction =
+        when {
+            !hasRenderer -> SurfaceAction.Create
+            surfaceWidth != width || surfaceHeight != height -> SurfaceAction.Swap
+            else -> SurfaceAction.Keep
+        }
+
+    /** How long a released renderer waits for the window to commit a frame before it is destroyed anyway. */
+    const val ReleaseFallbackMillis = 1_000L
+}
+
+/** Runs [action] once, however many of its triggers (frame commit, fallback timer) fire. */
+internal class RunOnce(private val action: () -> Unit) : Runnable {
+    private var done = false
+    val hasRun: Boolean get() = done
+
+    override fun run() {
+        if (done) return
+        done = true
+        action()
+    }
+}
+
+/**
  * Renders one glass layer (its whole filter chain: capture, mips, blur, lens, material) off screen at most
  * [GlasmioPerformance.frameRateCap] times per second on the shared [GlassFrameClock], while the window keeps drawing
  * at the panel rate. Between renders the window draws the last image, which is one texture draw instead of the
@@ -162,7 +200,9 @@ internal object GlassFrameClock : Choreographer.FrameCallback {
  *
  * The off-screen renderer shares the process RenderThread and GPU context with the window, so it sees the same
  * live render nodes; it only runs them less often. Two images stay open (the one shown and the one before it), so a
- * buffer is reused only after the window has drawn a newer one.
+ * buffer is reused only after the window has drawn a newer one. Finished images leave their queue on
+ * [GlassFrameImageThread], never on the main thread, so the RenderThread can always get a free buffer. See [GlassFrameRendererLifetime] for why the
+ * renderer is never destroyed while the glass layer may still need it.
  */
 internal class GlassFrameCache(
     private val view: View,
@@ -172,7 +212,8 @@ internal class GlassFrameCache(
     private val handler = Handler(Looper.getMainLooper())
     private val node = RenderNode("GlasmioGlassFrame")
     private var renderer: HardwareRenderer? = null
-    private var reader: ImageReader? = null
+    // Read on the image thread, so the reader that is current and the released flag are volatile.
+    @Volatile private var reader: ImageReader? = null
     private var surfaceSize = IntSize.Zero
     private var source: GraphicsLayer? = null
     private var sourceSize = IntSize.Zero
@@ -181,7 +222,17 @@ internal class GlassFrameCache(
     private var shownBitmap: ImageBitmap? = null
     private var shownSize = IntSize.Zero
     private var retired: Image? = null
-    private var released = false
+    private val staleReaders = ArrayList<ImageReader>(2)
+    @Volatile private var released = false
+
+    // Hand-off from the image thread to the main thread, guarded by [lock]. [incoming] was never shown, so the image
+    // thread may close it when a newer image arrives.
+    private val lock = Any()
+    private var incoming: Image? = null
+    private var incomingBitmap: ImageBitmap? = null
+    private var incomingSize = IntSize.Zero
+    private var promotePosted = false
+    private val promote = Runnable { promoteIncoming() }
 
     init {
         GlassFrameClock.add(this)
@@ -215,8 +266,12 @@ internal class GlassFrameCache(
             GlassFrameClock.activity()
             return
         }
+        // Readers replaced on an earlier glass frame: the renderer has moved to the new surface by now.
+        closeStaleReaders()
         val renderer = ensureSurface(size)
         node.setPosition(0, 0, size.width, size.height)
+        // Re-recording keeps the glass layer parented: HWUI adds the new display list's children before it drops
+        // the old one's, so the layer's node never reaches zero parents between glass frames.
         val canvas = node.beginRecording(size.width, size.height)
         try {
             CanvasDrawScope().draw(Density(view.resources.displayMetrics.density), LayoutDirection.Ltr,
@@ -227,64 +282,128 @@ internal class GlassFrameCache(
         try {
             renderer.createRenderRequest().setWaitForPresent(false).syncAndDraw()
         } catch (_: RuntimeException) {
-            // A surface lost between frames; the next glass frame re-creates it.
-            releaseSurface()
+            // The output surface was lost between frames. Keep the renderer (destroying it would delete the glass
+            // layer's display lists); the next glass frame gives it a new surface and only then retires this reader,
+            // so a reader is never closed while the renderer still draws into it.
+            surfaceSize = IntSize.Zero
         }
     }
 
     private fun ensureSurface(size: IntSize): HardwareRenderer {
         val current = renderer
-        if (current != null && surfaceSize == size) return current
-        releaseSurface()
+        val action = GlassFrameRendererLifetime.surfaceAction(current != null, surfaceSize.width, surfaceSize.height,
+            size.width, size.height)
+        if (action == GlassFrameRendererLifetime.SurfaceAction.Keep && current != null) return current
         val reader = ImageReader.newInstance(size.width, size.height, PixelFormat.RGBA_8888, MaxImages,
             HardwareBuffer.USAGE_GPU_SAMPLED_IMAGE or HardwareBuffer.USAGE_GPU_COLOR_OUTPUT)
         val imageSize = size
-        reader.setOnImageAvailableListener({ onImage(it, imageSize) }, handler)
-        val created = HardwareRenderer().apply {
-            setSurface(reader.surface)
+        // Images leave the queue on their own thread, never the main thread: the RenderThread waits for a free buffer
+        // while it draws glass, and the main thread waits for the RenderThread, so a buffer the main thread had to
+        // free could never be freed (input-dispatch ANR).
+        reader.setOnImageAvailableListener({ onImage(it, imageSize) }, GlassFrameImageThread.handler)
+        // A resize swaps only the output surface: the renderer and its root display list stay alive.
+        retireReader()
+        val target = current ?: HardwareRenderer().apply {
             setContentRoot(node)
             isOpaque = false
         }
+        target.setSurface(reader.surface)
         this.reader = reader
-        this.renderer = created
+        this.renderer = target
         surfaceSize = size
-        return created
+        return target
     }
 
+    /** Stops showing images of the current reader and closes it on the next glass frame. */
+    private fun retireReader() {
+        shownBitmap = null
+        shownSize = IntSize.Zero
+        retired?.close(); retired = null
+        shown?.close(); shown = null
+        synchronized(lock) {
+            reader?.let { staleReaders += it }
+            reader = null
+            incoming?.close(); incoming = null; incomingBitmap = null
+        }
+        surfaceSize = IntSize.Zero
+    }
+
+    private fun closeStaleReaders() {
+        if (staleReaders.isEmpty()) return
+        staleReaders.forEach { it.close() }
+        staleReaders.clear()
+    }
+
+    /** Image thread. Always takes the image off the queue, so the RenderThread never waits on the main thread. */
     private fun onImage(reader: ImageReader, size: IntSize) {
-        if (released || reader !== this.reader) return
         val image = try { reader.acquireLatestImage() } catch (_: IllegalStateException) { null } ?: return
+        if (released || reader !== this.reader) { image.close(); return }
         val buffer = image.hardwareBuffer
-        val bitmap = buffer?.let { Bitmap.wrapHardwareBuffer(it, ColorSpace.get(ColorSpace.Named.SRGB)) }
-        buffer?.close()
+        val bitmap = try {
+            buffer?.let { Bitmap.wrapHardwareBuffer(it, ColorSpace.get(ColorSpace.Named.SRGB)) }
+        } finally {
+            buffer?.close()
+        }
         if (bitmap == null) { image.close(); return }
+        val post: Boolean
+        synchronized(lock) {
+            if (released || reader !== this.reader) { image.close(); return }
+            incoming?.close()
+            incoming = image
+            incomingBitmap = bitmap.asImageBitmap()
+            incomingSize = size
+            post = !promotePosted
+            promotePosted = true
+        }
+        if (post) handler.post(promote)
+    }
+
+    /** Main thread: shows the newest finished image and keeps the one before it open until the window draws again. */
+    private fun promoteIncoming() {
+        val image: Image
+        val bitmap: ImageBitmap
+        val size: IntSize
+        synchronized(lock) {
+            promotePosted = false
+            image = incoming ?: return
+            bitmap = incomingBitmap ?: run { image.close(); incoming = null; return }
+            size = incomingSize
+            incoming = null
+            incomingBitmap = null
+        }
+        if (released) { image.close(); return }
         retired?.close()
         retired = shown
         shown = image
-        shownBitmap = bitmap.asImageBitmap()
+        shownBitmap = bitmap
         shownSize = size
         GlassFrameClock.presented(root)
         requestPresent()
     }
 
-    private fun releaseSurface() {
-        shownBitmap = null
-        shownSize = IntSize.Zero
-        retired?.close(); retired = null
-        shown?.close(); shown = null
-        renderer?.destroy(); renderer = null
-        reader?.close(); reader = null
-        surfaceSize = IntSize.Zero
-        node.discardDisplayList()
-    }
-
+    /**
+     * Stops caching. The window draws the live layer from this frame on (or the layer is being released), so the
+     * renderer is destroyed only after the window has committed a frame, when the window's own tree holds the glass
+     * layer. Destroying it now would drop the layer's last parent and delete its display lists.
+     */
     fun release() {
         if (released) return
         released = true
+        handler.removeCallbacks(promote)
         GlassFrameClock.remove(this)
         GlassFrameClock.untrack(root)
-        releaseSurface()
         source = null
+        retireReader()
+        val renderer = renderer ?: run { closeStaleReaders(); return }
+        this.renderer = null
+        val destroy = RunOnce {
+            renderer.destroy()
+            node.discardDisplayList()
+            closeStaleReaders()
+        }
+        val observer = root.viewTreeObserver
+        if (observer.isAlive) observer.registerFrameCommitCallback(destroy)
+        handler.postDelayed(destroy, GlassFrameRendererLifetime.ReleaseFallbackMillis)
     }
 
     companion object {
@@ -300,5 +419,14 @@ internal class GlassFrameCache(
             val refresh = view.display?.refreshRate ?: return false
             return cap < refresh - 1f
         }
+    }
+}
+
+/** One process-wide thread that takes finished glass images off their queues, independent of the main thread. */
+private object GlassFrameImageThread {
+    val handler: Handler by lazy {
+        val thread = HandlerThread("GlasmioGlassFrames")
+        thread.start()
+        Handler(thread.looper)
     }
 }
