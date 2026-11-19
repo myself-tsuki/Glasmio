@@ -90,13 +90,18 @@ private class LayerBackdropNode(
         if (backdrop === value) return
         unregisterCapture()
         backdrop.clearRecordingCoordinates()
+        backdrop.sourceRoot = null
         backdrop = value
-        if (isAttached) registerCapture()
+        if (isAttached) {
+            registerCapture()
+            value.sourceRoot = trackedRoot
+        }
     }
 
     private fun registerCapture() {
         val layer = backdrop.graphicsLayer
         registeredLayer = layer
+        backdrop.snapshotSource = true
         val owners = CaptureOwners.getOrPut(layer) { LinkedHashSet() }
         owners.add(this)
         owners.forEach { it.invalidateDraw() }
@@ -105,6 +110,7 @@ private class LayerBackdropNode(
     private fun unregisterCapture() {
         val layer = registeredLayer ?: return
         registeredLayer = null
+        backdrop.snapshotSource = false
         val owners = CaptureOwners[layer] ?: return
         owners.remove(this)
         if (owners.isEmpty()) CaptureOwners.remove(layer)
@@ -114,6 +120,7 @@ private class LayerBackdropNode(
     override fun onAttach() {
         registerCapture()
         trackedRoot = GlassFrameClock.track(requireView())
+        backdrop.sourceRoot = trackedRoot
     }
 
     override fun ContentDrawScope.draw() {
@@ -142,6 +149,7 @@ private class LayerBackdropNode(
     }
 
     override fun onDetach() {
+        backdrop.sourceRoot = null
         trackedRoot?.let(GlassFrameClock::untrack)
         trackedRoot = null
         unregisterCapture()

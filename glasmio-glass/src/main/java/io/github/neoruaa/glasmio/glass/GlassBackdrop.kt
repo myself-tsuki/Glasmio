@@ -212,7 +212,8 @@ class CrossWindowBackdrop(
             translate(0f, captureTop.toFloat())
             if (rasterized != null) scale(1f / renderScale, 1f / renderScale, Offset.Zero)
         }) {
-            drawLayer(layer)
+            // Capped glass in the popup samples the content window's snapshot, like glass in that window.
+            if (layer === source.graphicsLayer) with(source) { drawSourceContent() } else drawLayer(layer)
         }
     }
 }
@@ -330,6 +331,7 @@ interface ViewportBackdrop : Backdrop {
 internal fun Backdrop.hasBuiltInGlassLayerBlockIndependentSource(): Boolean = when (this) {
     is CrossWindowBackdrop -> true
     is SharedGlassBackdrop -> hasLayerBlockIndependentBase()
+    is SettledBackdrop -> hasLayerBlockIndependentSource()
     else -> false
 }
 

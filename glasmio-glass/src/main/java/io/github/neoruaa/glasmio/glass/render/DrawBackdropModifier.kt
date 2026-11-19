@@ -353,8 +353,8 @@ private class DrawBackdropNode(
         }
 
     private var graphicsLayer: GraphicsLayer? = null
-    // Renders this surface's filter chain off screen at the glass frame-rate cap; null = live rendering.
-    private var frameCache: GlassFrameCache? = null
+    // This surface's window when its glass is capped: its backdrop sources draw their snapshots. Null = live.
+    private var cappedView: android.view.View? = null
     private var atlasPasses: NativeGlassAtlasPasses? = null
     private var atlasProducerLayer: GraphicsLayer? = null
     private var atlasBackingLayer: GraphicsLayer? = null
@@ -560,14 +560,18 @@ private class DrawBackdropNode(
                 if (scale != 1f) canvas.scale(1f / scale, 1f / scale)
                 if (padding != 0f) canvas.translate(-padding, -padding)
             }
-            val cache = frameCache
-            if (cache != null) cache.draw(this, layer) else drawLayer(layer)
+            drawLayer(layer)
         } finally {
             canvas.restore()
         }
     }
 
+    // Capped glass records its sources' snapshots instead of their live layers (see BackdropSnapshot).
     private val drawBackdropLayer: DrawScope.() -> Unit = {
+        CappedGlassDraw.with(cappedView) { drawBackdropLayerLive(this) }
+    }
+
+    private val drawBackdropLayerLive: DrawScope.() -> Unit = {
         val layer = graphicsLayer
         if (layer != null) {
             val baseSize = IntSize(
@@ -673,12 +677,11 @@ private class DrawBackdropNode(
         effectScope.nativeGlassHeadroom = headroom
         GlasmioPerformance.ensureDetected(requireView().context)
         val geometryChanged = effectScope.update(this, GlasmioPerformance.sampling(samplingScale(size, this)))
-        // Glass-only cap: the window keeps the panel rate, this surface's chain runs at most frameRateCap times a second.
+        // Glass-only cap: the window keeps the panel rate; this surface samples its sources' snapshots, which render
+        // at most frameRateCap times a second, so its filter chain only reruns when a new snapshot arrives.
         val view = requireView()
-        if (!luminanceOnly && exportedBackdrop == null &&
-            GlassFrameCache.applies(view, effectScope.nativeGlassHardwareRendering, managed, headroom)) {
-            if (frameCache == null) frameCache = GlassFrameCache(view) { if (isAttached) invalidateDraw() }
-        } else releaseFrameCache()
+        cappedView = if (!luminanceOnly &&
+            BackdropSnapshot.applies(view, effectScope.nativeGlassHardwareRendering, managed, headroom)) view else null
         if (effectsDirty || geometryChanged || colorSpaceChanged || headroomChanged) {
             observeEffects()
             effectsDirty = false
@@ -1047,13 +1050,8 @@ private class DrawBackdropNode(
         effectsDirty = true
     }
 
-    private fun releaseFrameCache() {
-        frameCache?.release()
-        frameCache = null
-    }
-
     override fun onDetach() {
-        releaseFrameCache()
+        cappedView = null
         sourceObservation?.invoke()
         sourceObservation = null
         luminanceGeneration++

@@ -28,6 +28,9 @@ import androidx.compose.ui.layout.LayoutCoordinates
 import androidx.compose.ui.layout.findRootCoordinates
 import androidx.compose.ui.unit.Density
 import io.github.neoruaa.glasmio.glass.render.Backdrop
+import io.github.neoruaa.glasmio.glass.render.BackdropSnapshot
+import io.github.neoruaa.glasmio.glass.render.CappedGlassDraw
+import io.github.neoruaa.glasmio.glass.render.GlassFrameClock
 
 private val DefaultOnDraw: ContentDrawScope.() -> Unit = { drawContent() }
 
@@ -59,6 +62,15 @@ class LayerBackdrop internal constructor(
      */
     internal var fillsBoundsUniformly: Boolean = false
 
+    /** Set while a [layerBackdrop] node records page content into this layer, so capped glass may snapshot it. */
+    internal var snapshotSource: Boolean = false
+
+    /** The source node's window root; its draws keep the glass clock running. */
+    internal var sourceRoot: android.view.View? = null
+
+    // The source content at the glass frame-rate cap, shared by every capped glass surface sampling this backdrop.
+    private var snapshot: BackdropSnapshot? = null
+
     private val sourceToConsumer = Matrix()
     private val screenToConsumer = Matrix()
     private val sourceObservers = LinkedHashSet<() -> Unit>()
@@ -72,6 +84,15 @@ class LayerBackdrop internal constructor(
     }
 
     internal fun notifySourceRecorded() {
+        if (snapshot?.isActive == true) {
+            // Capped glass samples the snapshot. It records again when a new image arrives, not on every source draw.
+            GlassFrameClock.activity()
+            return
+        }
+        notifyObservers()
+    }
+
+    private fun notifyObservers() {
         // An observer can detach while handling a source change.
         // Rebuild the snapshot on membership changes instead of every recorded frame.
         sourceObserverSnapshot.forEach { it() }
@@ -79,6 +100,27 @@ class LayerBackdrop internal constructor(
 
     internal fun clearRecordingCoordinates() {
         layerCoordinates = null
+        snapshot?.release()
+    }
+
+    /**
+     * Draws the source content: its snapshot when the glass being recorded is capped ([CappedGlassDraw]), else the
+     * live layer. Uniform fills and layers no [layerBackdrop] node records (exported glass) stay live.
+     */
+    internal fun DrawScope.drawSourceContent() {
+        if (CappedGlassDraw.view != null && snapshotSource && !fillsBoundsUniformly) {
+            val current = snapshot ?: BackdropSnapshot(
+                layer = graphicsLayer,
+                sourceRoot = { sourceRoot },
+                sourceAttached = { layerCoordinates?.isAttached == true },
+                onPresent = this@LayerBackdrop::notifyObservers,
+                onReleased = { released -> if (snapshot === released) snapshot = null },
+            ).also { snapshot = it }
+            if (current.draw(this)) return
+        } else {
+            snapshot?.liveDrawn()
+        }
+        drawLayer(graphicsLayer)
     }
 
     override fun DrawScope.drawBackdrop(
@@ -94,7 +136,7 @@ class LayerBackdrop internal constructor(
             // Applying its manual inverse again would double the press scale/rotation.
             transform(sourceToConsumer)
         }) {
-            drawLayer(graphicsLayer)
+            drawSourceContent()
         }
     }
 

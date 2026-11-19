@@ -2,6 +2,15 @@
 
 ## Unreleased
 
+- Rebuild the glass frame-rate cap so capped glass cannot crash the app. 0.2.2-0.2.4 rendered each glass surface's whole filter chain (render effects, runtime shaders, atlas layers) in a second off-screen renderer and lent the glass layer to it. That crashed on the RenderThread on some devices, at app start, when a menu opened, and as an ANR. The cap now snapshots only the page content behind the glass (one off-screen renderer per backdrop source, at the backdrop resolution) at most `frameRateCap` times a second. The glass itself always stays in the window's renderer and reruns its chain only when a new snapshot arrives, so the GPU saving remains while the window keeps the panel rate.
+
+## 0.2.4
+
+- Fix an "Input dispatching timed out" ANR with `frameRateCap` set, typically when a menu opens. The capped-glass renderer draws into a 4-buffer queue, and buffers were only taken off that queue on the main thread. The RenderThread waited for a free buffer while drawing glass, the main thread waited for the RenderThread, and neither could continue. Finished glass images are now taken off the queue on their own thread (`GlasmioGlassFrames`). The main thread only swaps in the newest image, so the RenderThread never waits on it.
+- Fix the app crashing when a menu opens with `frameRateCap` set (0.2.2/0.2.3), and the backdrop going stale or blank with the cap on. While the window shows the cached glass image, the off-screen renderer is the only parent of the glass layer's render node. The cache destroyed that renderer on every size change (a menu resizes several times while it opens) and right after handing the layer back to the window. That dropped the node's last parent, and Android's renderer then deleted the glass layer's display lists while Compose still used them. Each cache now keeps one renderer for its whole life, a resize only swaps its output surface, and the renderer is destroyed only after the window has committed a frame that draws the glass layer itself.
+
+## 0.2.3
+
 - Fix the backdrop freezing on an old frame with `frameRateCap` (0.2.2). The glass cache guessed when to re-render from window draws and treated frames that showed a new glass image as "nothing changed". With several glass surfaces, almost every frame was such a frame, so glass stopped updating. Glass in a popup also never saw the content window scroll. Capped glass now renders on one shared clock at the cap whenever any glass or backdrop-source window draws, then stops 250 ms after the last app frame.
 
 ## 0.2.2
